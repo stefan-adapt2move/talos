@@ -1099,13 +1099,12 @@ app.get("/tasks", (c) => {
 
     <div class="mb-16">${filterHtml}</div>
     <table>
-      <tr><th>ID</th><th>Type</th><th>Trigger</th><th>Content</th><th>Status</th><th>Path</th><th>Created</th></tr>
+      <tr><th>ID</th><th>Trigger</th><th>Content</th><th>Status</th><th>Path</th><th>Created</th></tr>
       ${tasks
         .map(
           (t) => `
         <tr class="msg-row" hx-get="/tasks/${t.id}" hx-target="#task-detail-${t.id}" hx-swap="innerHTML">
           <td>#${t.id}</td>
-          <td><span class="badge" style="background:${t.type === "research" ? "#00bcd420" : "#7c6ef020"};color:${t.type === "research" ? "#00bcd4" : "#7c6ef0"}">${t.type || "code"}</span></td>
           <td><span class="badge" style="background:#7c6ef020;color:#7c6ef0">${safe(t.trigger_name)}</span></td>
           <td>${safe((t.content || "").slice(0, 80))}${t.content?.length > 80 ? "..." : ""}</td>
           <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}${t.review_iteration > 0 ? ` (r${t.review_iteration})` : ""}</span></td>
@@ -1133,9 +1132,9 @@ app.get("/tasks/:id", (c) => {
     .prepare("SELECT * FROM task_awaits WHERE task_id = ?")
     .get(task.id) as any;
 
-  return c.html(`<td colspan="7"><div class="msg-detail">
+  return c.html(`<td colspan="6"><div class="msg-detail">
     <strong>ID:</strong> ${task.id} | <strong>Trigger:</strong> ${safe(task.trigger_name)} | <strong>Status:</strong> ${task.status}
-    | <strong>Type:</strong> ${task.type || "code"} | <strong>Review:</strong> ${task.review ? "yes" : "no"}${task.review_iteration > 0 ? ` (iteration ${task.review_iteration})` : ""}
+    | <strong>Review:</strong> ${task.review ? "yes" : "no"}${task.review_iteration > 0 ? ` (iteration ${task.review_iteration})` : ""}
     ${task.path ? `<br><strong>Path:</strong> <code>${safe(task.path)}</code>` : ""}
     <br><strong>Created:</strong> ${task.created_at}
     ${task.processed_at ? `| <strong>Processed:</strong> ${task.processed_at}` : ""}

@@ -88,8 +88,8 @@ See [Triggers.md](Triggers.md) for trigger details.
 ## Parallel Execution
 
 Tasks can run in parallel under these conditions:
-- **Code tasks with non-overlapping paths** — Each locks its path + subdirectories
-- **Research tasks** — No path lock, always dispatchable
+- **Tasks with non-overlapping paths** — Each locks its path + subdirectories
+- **Tasks without path** — No lock, always dispatchable (research, browser automation, etc.)
 - **Max parallel workers** — Configurable limit (default: 3) in `config.yml`
 
 Path lock conflicts are checked bidirectionally: a new path is blocked if it's an ancestor or descendant of an existing lock.

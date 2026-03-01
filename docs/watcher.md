@@ -57,7 +57,7 @@ WHERE '<normalized_path>' LIKE locked_path || '%'  -- ancestor locked
    OR locked_path LIKE '<normalized_path>' || '%'   -- descendant locked
 ```
 
-Research tasks (no path) are always dispatchable since they don't lock any paths.
+Tasks without a path are always dispatchable since they don't lock any paths.
 
 ## Trigger Re-awakening
 

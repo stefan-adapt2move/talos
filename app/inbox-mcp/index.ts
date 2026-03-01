@@ -106,14 +106,7 @@ if (IS_TRIGGER) {
         .string()
         .optional()
         .describe(
-          "Optional working directory path for the task. Code tasks should specify the project directory (e.g. '/home/atlas/projects/myapp'). The path and all subdirectories are locked during execution. Tasks with non-overlapping paths run in parallel. Omit for research/browser tasks.",
-        ),
-      type: z
-        .enum(["code", "research"])
-        .optional()
-        .default("code")
-        .describe(
-          "Task type: 'code' for development tasks (default), 'research' for online research or browser automation. Research tasks have no path lock and can always run in parallel.",
+          "Optional working directory path for the task. Specify the project directory (e.g. '/home/atlas/projects/myapp'). The path and all subdirectories are locked during execution, preventing conflicting parallel writes. Tasks with non-overlapping paths run in parallel. Omit for tasks that don't modify files (research, browser automation, etc.).",
         ),
       review: z
         .boolean()
@@ -123,14 +116,14 @@ if (IS_TRIGGER) {
           "Whether a review agent should verify the work before marking it done. Default: true. Set to false for simple or low-risk tasks.",
         ),
     },
-    async ({ content, path, type, review }) => {
+    async ({ content, path, review }) => {
       const db = getDb();
 
       const task = db
         .prepare(
-          "INSERT INTO tasks (trigger_name, content, path, type, review) VALUES (?, ?, ?, ?, ?) RETURNING *",
+          "INSERT INTO tasks (trigger_name, content, path, review) VALUES (?, ?, ?, ?) RETURNING *",
         )
-        .get(ATLAS_TRIGGER, content, path || null, type || "code", review ? 1 : 0) as any;
+        .get(ATLAS_TRIGGER, content, path || null, review ? 1 : 0) as any;
       const taskId = task.id;
 
       // Auto-register for re-awakening
@@ -144,7 +137,6 @@ if (IS_TRIGGER) {
       writeFileSync(`${indexDir2}/.wake-task-${taskId}`, JSON.stringify({
         task_id: taskId,
         path: path || null,
-        type: type || "code",
       }));
 
       return ok(task);
@@ -228,7 +220,7 @@ if (IS_TRIGGER) {
     async () => {
       const db = getDb();
       const locks = db.prepare(
-        `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status, t.type
+        `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status
          FROM path_locks pl
          JOIN tasks t ON t.id = pl.task_id
          ORDER BY pl.locked_at ASC`

@@ -16,8 +16,7 @@ The work queue. Tasks flow through statuses: `pending` → `processing` → `rev
 | trigger_name | TEXT | Origin trigger that created this task |
 | content | TEXT | Task description with acceptance criteria |
 | status | TEXT | pending, processing, reviewing, done, failed, cancelled |
-| path | TEXT | Optional working directory for the task |
-| type | TEXT | `code` (default) or `research` |
+| path | TEXT | Optional working directory (locked during execution) |
 | review | INTEGER | 1=review enabled, 0=skip review |
 | review_iteration | INTEGER | Current review loop iteration |
 | worker_result | TEXT | JSON result from the worker |
@@ -90,14 +89,13 @@ Create a task for execution. Automatically writes `.wake-task-<id>` and register
 ```typescript
 {
   content: string,           // Task description with acceptance criteria (self-contained)
-  path?: string,             // Working directory (e.g. "/home/atlas/projects/myapp")
-  type?: "code" | "research", // Default: "code"
+  path?: string,             // Working directory (locked during execution)
   review?: boolean            // Default: true
 }
 ```
 
 - Tasks with non-overlapping `path` values run in parallel
-- Research tasks (no path) always run in parallel
+- Tasks without `path` always run in parallel (no lock needed)
 - `review: false` skips the review agent
 
 #### task_get

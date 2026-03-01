@@ -14,7 +14,7 @@ Each task gets its own task-runner process, spawned by the watcher when dispatch
 task-runner.sh <task_id>
   │
   ├─ Write PID file (/tmp/task-runner-<id>.pid)
-  ├─ Read task from DB (content, path, type, review)
+  ├─ Read task from DB (content, path, review)
   ├─ Acquire path lock (if path set) → exit if conflict
   ├─ Set status → 'processing'
   │
@@ -68,7 +68,7 @@ When `review=true` for a task, the task-runner spawns a review agent after the w
 - **Mode**: `--mode reviewer`
 - **MCP**: None (`app/.mcp-reviewer.json`)
 - **Input**: Original task description + worker's result
-- **For code tasks**: Also reviews changed files for quality, security, performance
+- **For tasks with `path`**: Also reviews changed files for quality, security, performance
 
 The reviewer returns a verdict:
 

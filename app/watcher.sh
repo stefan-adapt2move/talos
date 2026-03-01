@@ -98,7 +98,7 @@ dispatch_pending_tasks() {
   # Get pending tasks ordered by creation time
   local PENDING_TASKS
   PENDING_TASKS=$(sqlite3 -json "$DB" \
-    "SELECT id, path, type FROM tasks WHERE status='pending' ORDER BY created_at ASC;" \
+    "SELECT id, path FROM tasks WHERE status='pending' ORDER BY created_at ASC;" \
     2>/dev/null || echo "[]")
 
   [ "$PENDING_TASKS" = "[]" ] && return 0
@@ -111,10 +111,9 @@ dispatch_pending_tasks() {
       break
     fi
 
-    local TASK_ID TASK_PATH TASK_TYPE
+    local TASK_ID TASK_PATH
     TASK_ID=$(printf '%s' "$row" | jq -r '.id')
     TASK_PATH=$(printf '%s' "$row" | jq -r '.path // empty')
-    TASK_TYPE=$(printf '%s' "$row" | jq -r '.type // "code"')
 
     # Check path lock conflict (only for tasks with a path)
     if [ -n "$TASK_PATH" ]; then
@@ -127,7 +126,7 @@ dispatch_pending_tasks() {
       fi
     fi
 
-    echo "[$(date)] Dispatching task $TASK_ID (type=$TASK_TYPE, path=${TASK_PATH:-<none>})"
+    echo "[$(date)] Dispatching task $TASK_ID (path=${TASK_PATH:-<none>})"
 
     # Spawn task-runner in background
     (

@@ -140,11 +140,10 @@ fi
 
 TASK_CONTENT=$(printf '%s' "$TASK_JSON" | jq -r '.[0].content')
 TASK_PATH=$(printf '%s' "$TASK_JSON" | jq -r '.[0].path // empty')
-TASK_TYPE=$(printf '%s' "$TASK_JSON" | jq -r '.[0].type // "code"')
 TASK_REVIEW=$(printf '%s' "$TASK_JSON" | jq -r '.[0].review // 1')
 TRIGGER_NAME=$(printf '%s' "$TASK_JSON" | jq -r '.[0].trigger_name // ""')
 
-log "Task loaded: type=$TASK_TYPE path=${TASK_PATH:-<none>} review=$TASK_REVIEW"
+log "Task loaded: path=${TASK_PATH:-<none>} review=$TASK_REVIEW"
 
 # 2. Acquire path lock (if path is set)
 if [ -n "$TASK_PATH" ]; then
@@ -222,7 +221,7 @@ $TASK_CONTENT
 ### Worker Result (Iteration $REVIEW_ITERATION)
 $WORKER_RESULT"
 
-    if [ "$TASK_TYPE" = "code" ] && [ -n "$TASK_PATH" ]; then
+    if [ -n "$TASK_PATH" ]; then
       REVIEWER_PROMPT="$REVIEWER_PROMPT
 
 ### Working Directory
