@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-SESSION_FILE=$HOME/.index/.last-session-id
 CLEANUP_DONE=$HOME/.cleanup-done
 DB=$HOME/.index/atlas.db
 
@@ -25,14 +24,15 @@ fi
 
 echo "[$(date)] Daily cleanup starting. Recent messages: $MSGS"
 
-if [ -f "$SESSION_FILE" ] && [ "$MSGS" -gt 0 ]; then
+if [ "$MSGS" -gt 0 ]; then
   rm -f "$CLEANUP_DONE"
 
   CLEANUP_PROMPT="$(cat /atlas/app/prompts/daily-cleanup-prompt.md)"
   CLEANUP_PROMPT="${CLEANUP_PROMPT//YYYY-MM-DD/$(date +%Y-%m-%d)}"
 
-  ATLAS_CLEANUP=1 claude -p --resume "$(cat "$SESSION_FILE")" --max-turns 5 \
-    "$CLEANUP_PROMPT" 2>&1 | tee -a /atlas/logs/cleanup.log || true
+  export ATLAS_CRON=1
+  ATLAS_CLEANUP=1 claude-atlas --mode trigger --max-turns 5 \
+    -p "$CLEANUP_PROMPT" 2>&1 | tee -a /atlas/logs/cleanup.log || true
 
   # Wait for cleanup to complete (max 120s)
   TIMEOUT=120
@@ -47,6 +47,4 @@ if [ -f "$SESSION_FILE" ] && [ "$MSGS" -gt 0 ]; then
   fi
 fi
 
-# Reset session - next wakeup creates new session
-rm -f "$SESSION_FILE"
 echo "[$(date)] Cleanup done. Messages: $MSGS" >> /atlas/logs/cleanup.log

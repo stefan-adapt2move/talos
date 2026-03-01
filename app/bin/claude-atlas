@@ -59,7 +59,7 @@ if [ "$HAS_MODEL_FLAG" = false ]; then
                     MODEL_KEY="trigger"
                 fi
                 ;;
-            worker|worker-ephemeral) MODEL_KEY="worker" ;;
+            worker-ephemeral) MODEL_KEY="worker" ;;
             reviewer) MODEL_KEY="reviewer" ;;
         esac
         PARSED_MODEL=$(python3 -c "
@@ -78,17 +78,7 @@ fi
 SYSTEM_PROMPT=""
 
 
-if [ "$MODE" = "worker" ]; then
-    # Legacy worker sessions (backward compatibility)
-    if [ -f "$APP_DIR/prompts/worker-system-prompt.md" ]; then
-        SYSTEM_PROMPT="$SYSTEM_PROMPT
-
----
-
-$(cat "$APP_DIR/prompts/worker-system-prompt.md")"
-    fi
-
-elif [ "$MODE" = "worker-ephemeral" ]; then
+if [ "$MODE" = "worker-ephemeral" ]; then
     # Ephemeral worker: minimal prompt, no memory, no inbox MCP
     export ATLAS_WORKER_EPHEMERAL=1
     if [ -f "$APP_DIR/prompts/worker-ephemeral-prompt.md" ]; then

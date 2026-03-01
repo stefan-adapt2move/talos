@@ -109,8 +109,8 @@ Hooks inject context at lifecycle events:
 
 | Hook | Runs When | Purpose |
 |------|-----------|---------|
-| session-start.sh | Session starts | Load memory (trigger/legacy only) |
-| stop.sh | After response | Ephemeral/reviewer: exit 0; Legacy: check inbox |
+| session-start.sh | Session starts | Load memory (trigger only) |
+| stop.sh | After response | Mode-specific exit (all modes exit 0) |
 | pre-compact-*.sh | Before compaction | Prompt memory flush |
 | subagent-stop.sh | Subagent finishes | Quality gate |
 

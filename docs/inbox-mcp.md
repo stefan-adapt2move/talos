@@ -136,17 +136,7 @@ View active path locks. Shows which directories are currently locked by running 
 
 Returns: `{ active_workers: number, locks: [...] }`
 
-### Worker Tools (Legacy — ATLAS_TRIGGER is not set)
-
-These tools exist for backward compatibility with the legacy persistent worker (`--mode worker`). New ephemeral workers don't use inbox MCP at all — the task-runner manages their lifecycle.
-
-- `get_next_task` — Claim next pending task
-- `task_complete` — Mark task done
-- `task_list` — List tasks
-- `task_get` — Get task by ID
-- `inbox_stats` — Queue statistics
-
-## Task Lifecycle (New)
+## Task Lifecycle
 
 1. **Creation**: Trigger calls `task_create()` → task inserted as `pending`
 2. **Wake**: `.wake-task-<id>` file written → watcher dispatches

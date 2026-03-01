@@ -19,7 +19,6 @@ const MEMORY = `${WS}/memory`;
 const IDENTITY = `${WS}/IDENTITY.md`;
 const CONFIG = `${WS}/config.yml`;
 const EXTENSIONS = `${WS}/user-extensions.sh`;
-const LOCK = `${WS}/.index/.session-running`;
 const WAKE = `${WS}/.index/.wake`;
 
 function syncCrontab(): void {

@@ -10,7 +10,7 @@ Runs when Claude wakes up. Loads memory context and inbox status.
 
 If `ATLAS_WORKER_EPHEMERAL=1` or `ATLAS_REVIEWER=1`, the hook exits immediately. These sessions don't need memory context — the task description provides all necessary context.
 
-### Trigger / Legacy Worker Mode
+### Trigger Mode
 
 Outputs XML-wrapped sections:
 
@@ -32,7 +32,7 @@ Outputs XML-wrapped sections:
 3. **Inbox status** — Pending task count (only if > 0):
    ```xml
    <inbox-status>
-   You have 3 pending task(s). Use get_next_task() to process them.
+   You have 3 pending task(s) in the queue. Workers are dispatched automatically.
    </inbox-status>
    ```
 
@@ -48,18 +48,6 @@ Runs after Claude finishes a response. Handles session lifecycle.
 | Trigger | `ATLAS_TRIGGER` set | Exit 0 (watcher handles re-awakening) |
 | Ephemeral worker | `ATLAS_WORKER_EPHEMERAL=1` | Exit 0 (task-runner manages lifecycle) |
 | Reviewer | `ATLAS_REVIEWER=1` | Exit 0 (task-runner manages lifecycle) |
-| Legacy worker | None of the above | Check inbox, continue or sleep |
-
-### Legacy Worker Mode
-
-For backward compatibility with `--mode worker`:
-
-1. **Save session ID** to `.last-session-id`
-2. **Check active tasks** → exit 2 (continue) if found
-3. **Check pending tasks** → exit 2 (continue) if found
-4. **Sleep** → exit 0 with journal reminder
-
-Exit codes: 0 = sleep, 2 = continue processing
 
 ## pre-compact-auto.sh
 

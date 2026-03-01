@@ -121,6 +121,4 @@ Monospace font stack: SF Mono, Cascadia Code, Consolas
 
 ## Session Status
 
-The UI checks `.session-running` to show session status:
-- Lock file exists = Session active (blue indicator)
-- No lock file = Sleeping (gray indicator)
+The dashboard shows active worker count and path lock status from the database, reflecting real-time task execution state.
