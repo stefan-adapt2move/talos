@@ -47,7 +47,27 @@ if [ "$HAS_MODEL_FLAG" = false ]; then
 
     MODEL="sonnet"  # default fallback
     if [ -n "$CONFIG" ]; then
-        PARSED_MODEL=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['models']['main'])" 2>/dev/null) || true
+        # Resolve model based on session mode
+        # Mode-to-config mapping: trigger→trigger, worker/worker-ephemeral→worker, reviewer→reviewer
+        # Cron triggers set ATLAS_CRON=1 to select the cron model
+        MODEL_KEY="worker"  # default for unknown modes
+        case "$MODE" in
+            trigger)
+                if [ "${ATLAS_CRON:-}" = "1" ]; then
+                    MODEL_KEY="cron"
+                else
+                    MODEL_KEY="trigger"
+                fi
+                ;;
+            worker|worker-ephemeral) MODEL_KEY="worker" ;;
+            reviewer) MODEL_KEY="reviewer" ;;
+        esac
+        PARSED_MODEL=$(python3 -c "
+import yaml, sys
+c = yaml.safe_load(open(sys.argv[1]))
+models = c.get('models', {})
+print(models.get(sys.argv[2], models.get('worker', 'sonnet')))
+" "$CONFIG" "$MODEL_KEY" 2>/dev/null) || true
         if [ -n "$PARSED_MODEL" ]; then
             MODEL="$PARSED_MODEL"
         fi

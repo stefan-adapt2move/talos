@@ -2,7 +2,10 @@
 # Editable by Claude and via the Web-UI
 
 models:
-  main: sonnet # Main session model (claude -p --model)
+  trigger: opus # Trigger sessions (PM role) — needs strong reasoning
+  worker: sonnet # Ephemeral worker sessions
+  reviewer: sonnet # Review agent sessions
+  cron: sonnet # Cron/scheduled trigger sessions
   subagent_review: sonnet # SubagentStop quality gate (prompt hook)
   hooks: haiku # Default model for other prompt/agent hooks
 

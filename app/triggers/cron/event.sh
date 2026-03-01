@@ -11,5 +11,6 @@ fi
 
 echo "[$(date)] Cron event: $EVENT_TYPE" >> /atlas/logs/cron.log
 
-# Start autonomous Claude session with event prompt
-claude -p "$(cat "$EVENT_PROMPT")" 2>&1 | tee -a /atlas/logs/cron.log || true
+# Start autonomous Claude session with event prompt (cron model via ATLAS_CRON)
+export ATLAS_CRON=1
+claude-atlas --mode trigger -p "$(cat "$EVENT_PROMPT")" 2>&1 | tee -a /atlas/logs/cron.log || true
