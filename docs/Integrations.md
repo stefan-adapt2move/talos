@@ -1,6 +1,6 @@
 # Integrations
 
-Atlas supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or escalate to the main session.
+Atlas supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or delegate complex tasks via `task_create`.
 
 ## Architecture
 
@@ -24,11 +24,11 @@ Signal message ──▸ signal incoming <sender> <message>
                                                 │
                                     ┌───────────┴───────────┐
                                     │                       │
-                          signal send               inbox_write
+                          signal send               task_create
                           (direct CLI call)             (escalate)
                                     │                       │
                                     ▼                       ▼
-                            signal-cli send         Main session
+                            signal-cli send         Task-runner
 
 
 Email (IMAP) ──▸ email poll
@@ -47,11 +47,11 @@ Email (IMAP) ──▸ email poll
                                                 │
                                     ┌───────────┴───────────┐
                                     │                       │
-                          email reply                inbox_write
+                          email reply                task_create
                           (direct CLI call)              (escalate)
                                     │                       │
                                     ▼                       ▼
-                            SMTP with threading     Main session
+                            SMTP with threading     Task-runner
                             headers
 ```
 

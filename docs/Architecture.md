@@ -65,7 +65,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 
 ### Trigger Session (Project Manager)
 - **Spawned by**: trigger.sh per event
-- **Access**: Read-only workspace
+- **Access**: Workspace (PM scope — memory management, direct actions like signal/email replies)
 - **Tools**: Trigger tools (task_create, task_get, task_update, task_cancel, task_lock_status)
 - **Purpose**: User communication, task planning, memory management
 
@@ -79,7 +79,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ### Review Agent
 - **Spawned by**: task-runner.sh after worker completes
 - **Access**: Read-only workspace
-- **Tools**: Built-in tools (Read, Grep, Glob)
+- **Tools**: Built-in tools (Read, Grep, Glob) + Playwright MCP (visual verification)
 - **Purpose**: Verify worker output against acceptance criteria
 
 See [task-runner.md](task-runner.md) for the worker↔reviewer lifecycle.
@@ -110,7 +110,7 @@ Hooks inject context at lifecycle events:
 | Hook | Runs When | Purpose |
 |------|-----------|---------|
 | session-start.sh | Session starts | Load memory (trigger only) |
-| stop.sh | After response | Mode-specific exit (all modes exit 0) |
+| stop.sh | After response | Journal reminder (trigger), exit 0 (all modes) |
 | pre-compact-*.sh | Before compaction | Prompt memory flush |
 | subagent-stop.sh | Subagent finishes | Quality gate |
 

@@ -12,28 +12,28 @@ DB="$WORKSPACE/.index/atlas.db"
 APP_DIR="/atlas/app"
 LOG="/atlas/logs/task-runner-${TASK_ID}.log"
 PID_FILE="/tmp/task-runner-${TASK_ID}.pid"
-CLAUDE_JSON="$HOME/.claude.json"
+TASK_HELPERS="$APP_DIR/inbox-mcp"
 
 # Write PID file for crash recovery
 echo $$ > "$PID_FILE"
 
 log() { echo "[$(date)] [task:$TASK_ID] $*" | tee -a "$LOG"; }
 
+# Track temp files for cleanup
+TEMP_FILES=()
+
 cleanup() {
   # Release path lock
-  bun run "$APP_DIR/inbox-mcp/release-lock.ts" "$TASK_ID" 2>/dev/null || true
+  bun run "$TASK_HELPERS/release-lock.ts" "$TASK_ID" 2>/dev/null || true
   rm -f "$PID_FILE"
+  # Clean up any temp files
+  for f in "${TEMP_FILES[@]}"; do
+    rm -f "$f" 2>/dev/null || true
+  done
   # Signal watcher to dispatch next pending tasks
   touch "$WORKSPACE/.index/.wake"
 }
 trap cleanup EXIT
-
-# Disable remote MCP connectors that hang on startup
-disable_remote_mcp() {
-  [ -f "$CLAUDE_JSON" ] || return 0
-  jq '.cachedGrowthBookFeatures.tengu_claudeai_mcp_connectors = false' \
-    "$CLAUDE_JSON" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
-}
 
 # Read max_review_iterations from config
 read_config() {
@@ -46,14 +46,14 @@ read_config() {
   MAX_REVIEW_ITERATIONS=5
   if [ -n "$CONFIG" ]; then
     local PARSED
-    PARSED=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(c.get('workers',{}).get('max_review_iterations', 5))" 2>/dev/null) || true
+    PARSED=$(python3 -c "import yaml, sys; print(yaml.safe_load(open(sys.argv[1])).get('workers',{}).get('max_review_iterations', 5))" "$CONFIG" 2>/dev/null) || true
     if [ -n "$PARSED" ]; then
       MAX_REVIEW_ITERATIONS="$PARSED"
     fi
   fi
 }
 
-# Save session metrics to DB
+# Save session metrics to DB (already uses parameterized queries via Python)
 save_session_metrics() {
   local JSON_FILE="$1" SESSION_TYPE="$2" TRIGGER_NAME="$3"
   local STARTED_AT="$4" ENDED_AT="$5" EXIT_CODE="${6:-0}"
@@ -92,38 +92,38 @@ conn.close()
 PYEOF
 }
 
+# Safe task updates via parameterized helper (no SQL injection)
+task_update() {
+  local CMD="$1"
+  shift
+  if [ "$#" -gt 0 ]; then
+    bun run "$TASK_HELPERS/update-task.ts" "$TASK_ID" "$CMD" "$@" 2>/dev/null || true
+  else
+    bun run "$TASK_HELPERS/update-task.ts" "$TASK_ID" "$CMD" 2>/dev/null || true
+  fi
+}
+
+# Pipe value to task update (for large/unsafe content)
+task_update_stdin() {
+  local CMD="$1"
+  bun run "$TASK_HELPERS/update-task.ts" "$TASK_ID" "$CMD" 2>/dev/null || true
+}
+
 # Mark task as failed with error message
 mark_failed() {
   local ERROR_MSG="$1"
-  sqlite3 "$DB" "UPDATE tasks SET status='failed', response_summary=$(printf "'%s'" "$ERROR_MSG"), processed_at=datetime('now') WHERE id=$TASK_ID;" 2>/dev/null || true
+  printf '%s' "$ERROR_MSG" | task_update_stdin "failed"
   # Wake trigger with error
-  bun run "$APP_DIR/inbox-mcp/wake-trigger.ts" "$TASK_ID" "Task failed: $ERROR_MSG" 2>/dev/null || true
+  bun run "$TASK_HELPERS/wake-trigger.ts" "$TASK_ID" "Task failed: $ERROR_MSG" 2>/dev/null || true
 }
 
-# Extract the result text from Claude's JSON output
+# Extract fields from Claude's JSON output using jq
 extract_result() {
-  local JSON_FILE="$1"
-  python3 -c "
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get('result', ''))
-except:
-    print('')
-" "$JSON_FILE" 2>/dev/null || echo ""
+  jq -r '.result // ""' "$1" 2>/dev/null || echo ""
 }
 
-# Extract session_id from Claude's JSON output
 extract_session_id() {
-  local JSON_FILE="$1"
-  python3 -c "
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get('session_id', ''))
-except:
-    print('')
-" "$JSON_FILE" 2>/dev/null || echo ""
+  jq -r '.session_id // ""' "$1" 2>/dev/null || echo ""
 }
 
 # === MAIN ===
@@ -147,7 +147,7 @@ log "Task loaded: path=${TASK_PATH:-<none>} review=$TASK_REVIEW"
 
 # 2. Acquire path lock (if path is set)
 if [ -n "$TASK_PATH" ]; then
-  LOCK_RESULT=$(bun run "$APP_DIR/inbox-mcp/acquire-lock.ts" "$TASK_ID" "$TASK_PATH" "$$" 2>/dev/null)
+  LOCK_RESULT=$(bun run "$TASK_HELPERS/acquire-lock.ts" "$TASK_ID" "$TASK_PATH" "$$" 2>/dev/null)
   if [ "$LOCK_RESULT" != "acquired" ]; then
     log "Path lock conflict ($LOCK_RESULT), leaving task pending"
     # Don't mark failed — just exit and let watcher retry later
@@ -159,7 +159,7 @@ if [ -n "$TASK_PATH" ]; then
 fi
 
 # 3. Set task to processing
-sqlite3 "$DB" "UPDATE tasks SET status='processing', processed_at=datetime('now') WHERE id=$TASK_ID;" 2>/dev/null
+task_update "processing"
 
 # 4. Determine working directory
 WORK_DIR="$WORKSPACE"
@@ -167,12 +167,11 @@ if [ -n "$TASK_PATH" ] && [ -d "$TASK_PATH" ]; then
   WORK_DIR="$TASK_PATH"
 fi
 
-disable_remote_mcp
-
 # 5. Spawn ephemeral worker session
 log "Spawning worker session (cwd=$WORK_DIR)"
 WORKER_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 WORKER_OUT=$(mktemp /tmp/worker-out-XXXXXX.json)
+TEMP_FILES+=("$WORKER_OUT")
 WORKER_SESSION_ID=""
 
 set +e
@@ -191,14 +190,13 @@ save_session_metrics "$WORKER_OUT" "worker" "$TRIGGER_NAME" "$WORKER_START" "$WO
 if [ "$WORKER_EXIT" -ne 0 ] && [ -z "$WORKER_RESULT" ]; then
   log "Worker session failed with exit $WORKER_EXIT"
   mark_failed "Worker session crashed (exit code $WORKER_EXIT)"
-  rm -f "$WORKER_OUT"
   exit 1
 fi
 
 log "Worker session completed (exit=$WORKER_EXIT)"
 
-# Store worker result in DB
-sqlite3 "$DB" "UPDATE tasks SET worker_result=$(printf "'%s'" "$(echo "$WORKER_RESULT" | sed "s/'/''/g")") WHERE id=$TASK_ID;" 2>/dev/null || true
+# Store worker result in DB (safe, via stdin)
+printf '%s' "$WORKER_RESULT" | task_update_stdin "worker_result"
 
 # 6. Review loop (if review is enabled)
 if [ "$TASK_REVIEW" = "1" ]; then
@@ -210,7 +208,7 @@ if [ "$TASK_REVIEW" = "1" ]; then
     log "Review iteration $REVIEW_ITERATION/$MAX_REVIEW_ITERATIONS"
 
     # Update task status
-    sqlite3 "$DB" "UPDATE tasks SET status='reviewing', review_iteration=$REVIEW_ITERATION WHERE id=$TASK_ID;" 2>/dev/null
+    task_update "reviewing" "$REVIEW_ITERATION"
 
     # Build reviewer prompt
     REVIEWER_PROMPT="## Task Under Review
@@ -233,6 +231,7 @@ Note: This is a code task. In addition to checking completeness against the acce
     # Spawn reviewer session
     REVIEW_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     REVIEW_OUT=$(mktemp /tmp/review-out-XXXXXX.json)
+    TEMP_FILES+=("$REVIEW_OUT")
 
     set +e
     if [ -n "$REVIEWER_SESSION_ID" ]; then
@@ -308,10 +307,11 @@ $TASK_CONTENT
 Please fix the identified issues and provide an updated result."
 
     # Resume worker session with feedback
-    sqlite3 "$DB" "UPDATE tasks SET status='processing' WHERE id=$TASK_ID;" 2>/dev/null
+    task_update "processing"
 
     WORKER_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     WORKER_OUT2=$(mktemp /tmp/worker-out-XXXXXX.json)
+    TEMP_FILES+=("$WORKER_OUT2")
 
     set +e
     if [ -n "$WORKER_SESSION_ID" ]; then
@@ -334,29 +334,23 @@ Please fix the identified issues and provide an updated result."
     save_session_metrics "$WORKER_OUT2" "worker" "$TRIGGER_NAME" "$WORKER_START" "$WORKER_END" "$WORKER_EXIT"
     rm -f "$WORKER_OUT2"
 
-    # Update worker result in DB
-    sqlite3 "$DB" "UPDATE tasks SET worker_result=$(printf "'%s'" "$(echo "$WORKER_RESULT" | sed "s/'/''/g")") WHERE id=$TASK_ID;" 2>/dev/null || true
+    # Update worker result in DB (safe, via stdin)
+    printf '%s' "$WORKER_RESULT" | task_update_stdin "worker_result"
 
     if [ "$WORKER_EXIT" -ne 0 ] && [ -z "$WORKER_RESULT" ]; then
       log "Worker crashed during revision (exit=$WORKER_EXIT)"
       mark_failed "Worker crashed during revision iteration $REVIEW_ITERATION"
-      rm -f "$WORKER_OUT"
       exit 1
     fi
   done
 fi
 
-rm -f "$WORKER_OUT"
-
-# 7. Task complete — build response summary
-RESPONSE_SUMMARY="$WORKER_RESULT"
-
-# 8. Mark task as done
-sqlite3 "$DB" "UPDATE tasks SET status='done', response_summary=$(printf "'%s'" "$(echo "$RESPONSE_SUMMARY" | sed "s/'/''/g")"), processed_at=datetime('now') WHERE id=$TASK_ID;" 2>/dev/null
+# 7. Task complete — mark as done (safe, via stdin)
+printf '%s' "$WORKER_RESULT" | task_update_stdin "done"
 
 log "Task completed successfully"
 
-# 9. Wake trigger that created this task
-bun run "$APP_DIR/inbox-mcp/wake-trigger.ts" "$TASK_ID" "$RESPONSE_SUMMARY" 2>>"$LOG" || true
+# 8. Wake trigger that created this task
+bun run "$TASK_HELPERS/wake-trigger.ts" "$TASK_ID" "$WORKER_RESULT" 2>>"$LOG" || true
 
 log "Task runner finished"

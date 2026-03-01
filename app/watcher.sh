@@ -51,11 +51,13 @@ conn.close()
 PYEOF
 }
 
-# Disable remote MCP connectors that hang on startup.
+# Disable remote MCP connectors that hang on startup (run once, not per task-runner)
 disable_remote_mcp() {
   [ -f "$CLAUDE_JSON" ] || return 0
+  local TMP
+  TMP=$(mktemp "${CLAUDE_JSON}.XXXXXX")
   jq '.cachedGrowthBookFeatures.tengu_claudeai_mcp_connectors = false' \
-    "$CLAUDE_JSON" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+    "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON" || rm -f "$TMP"
 }
 
 # Read max_parallel from config
@@ -69,7 +71,7 @@ read_max_parallel() {
   MAX_PARALLEL=3  # default
   if [ -n "$CONFIG" ]; then
     local PARSED
-    PARSED=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(c.get('workers',{}).get('max_parallel', 3))" 2>/dev/null) || true
+    PARSED=$(python3 -c "import yaml, sys; print(yaml.safe_load(open(sys.argv[1])).get('workers',{}).get('max_parallel', 3))" "$CONFIG" 2>/dev/null) || true
     if [ -n "$PARSED" ]; then
       MAX_PARALLEL="$PARSED"
     fi
@@ -103,11 +105,14 @@ dispatch_pending_tasks() {
 
   [ "$PENDING_TASKS" = "[]" ] && return 0
 
-  echo "$PENDING_TASKS" | jq -c '.[]' 2>/dev/null | while IFS= read -r row; do
-    # Re-check slots (might have filled during iteration)
+  # Use process substitution to avoid subshell (so break/variables work correctly)
+  local DISPATCHED=0
+  while IFS= read -r row; do
+    # Check slots (account for tasks we just dispatched but haven't updated DB yet)
     ACTIVE=$(count_active_workers)
-    if [ "$ACTIVE" -ge "$MAX_PARALLEL" ]; then
-      echo "[$(date)] Max parallel workers reached during dispatch ($ACTIVE/$MAX_PARALLEL)"
+    local EFFECTIVE=$((ACTIVE + DISPATCHED))
+    if [ "$EFFECTIVE" -ge "$MAX_PARALLEL" ]; then
+      echo "[$(date)] Max parallel workers reached during dispatch ($EFFECTIVE/$MAX_PARALLEL)"
       break
     fi
 
@@ -115,18 +120,21 @@ dispatch_pending_tasks() {
     TASK_ID=$(printf '%s' "$row" | jq -r '.id')
     TASK_PATH=$(printf '%s' "$row" | jq -r '.path // empty')
 
-    # Check path lock conflict (only for tasks with a path)
+    # Check path lock conflict using hasPathConflict (parameterized, no SQL injection)
     if [ -n "$TASK_PATH" ]; then
-      local NORM_PATH CONFLICTS
-      NORM_PATH=$(python3 -c "import os; p=os.path.realpath('$TASK_PATH'); print(p+'/' if not p.endswith('/') else p)" 2>/dev/null || echo "$TASK_PATH/")
-      CONFLICTS=$(sqlite3 "$DB" "SELECT COUNT(*) FROM path_locks WHERE '$NORM_PATH' LIKE locked_path || '%' OR locked_path LIKE '$NORM_PATH' || '%';" 2>/dev/null || echo "0")
-      if [ "$CONFLICTS" -gt 0 ]; then
+      local HAS_CONFLICT
+      HAS_CONFLICT=$(bun -e "
+        import { hasPathConflict } from '/atlas/app/inbox-mcp/locks';
+        console.log(hasPathConflict(process.argv[1]) ? '1' : '0');
+      " "$TASK_PATH" 2>/dev/null || echo "0")
+      if [ "$HAS_CONFLICT" = "1" ]; then
         echo "[$(date)] Task $TASK_ID: path conflict for $TASK_PATH, skipping"
         continue
       fi
     fi
 
     echo "[$(date)] Dispatching task $TASK_ID (path=${TASK_PATH:-<none>})"
+    DISPATCHED=$((DISPATCHED + 1))
 
     # Spawn task-runner in background
     (
@@ -134,7 +142,7 @@ dispatch_pending_tasks() {
       "$APP_DIR/task-runner.sh" "$TASK_ID" 2>&1 | tee -a "/atlas/logs/task-runner-${TASK_ID}.log" || true
     ) &
 
-  done
+  done < <(printf '%s' "$PENDING_TASKS" | jq -c '.[]' 2>/dev/null)
 }
 
 handle_trigger_wake() {
@@ -175,8 +183,6 @@ ${SUMMARY}
 Relay this result to the original sender now."
 
     LOG="/atlas/logs/trigger-${TRIGGER_NAME}.log"
-
-    disable_remote_mcp
 
     if [ -n "$SESSION_ID" ]; then
       echo "[$(date)] Resuming trigger $TRIGGER_NAME (session=$SESSION_ID)" | tee -a "$LOG"
@@ -272,6 +278,9 @@ startup_recovery() {
 # Ensure watch directory exists
 mkdir -p "$WATCH_DIR"
 touch "$WATCH_DIR/.wake"
+
+# Disable remote MCP once at startup (shared by all sessions)
+disable_remote_mcp
 
 echo "[$(date)] Watcher started. Monitoring $WATCH_DIR"
 

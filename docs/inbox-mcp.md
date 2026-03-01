@@ -153,6 +153,7 @@ Returns: `{ active_workers: number, locks: [...] }`
 - `app/inbox-mcp/index.ts` — Main MCP server
 - `app/inbox-mcp/db.ts` — Database initialization, schema, migrations
 - `app/inbox-mcp/locks.ts` — Path locking module
+- `app/inbox-mcp/update-task.ts` — CLI: parameterized task status/result updates
 - `app/inbox-mcp/acquire-lock.ts` — CLI: acquire path lock
 - `app/inbox-mcp/release-lock.ts` — CLI: release path lock
 - `app/inbox-mcp/wake-trigger.ts` — CLI: wake trigger session

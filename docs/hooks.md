@@ -44,10 +44,13 @@ Runs after Claude finishes a response. Handles session lifecycle.
 
 | Mode | Environment Variable | Behavior |
 |------|---------------------|----------|
-| Daily cleanup | `ATLAS_CLEANUP=1` | Touch `.cleanup-done`, exit 0 |
-| Trigger | `ATLAS_TRIGGER` set | Exit 0 (watcher handles re-awakening) |
 | Ephemeral worker | `ATLAS_WORKER_EPHEMERAL=1` | Exit 0 (task-runner manages lifecycle) |
 | Reviewer | `ATLAS_REVIEWER=1` | Exit 0 (task-runner manages lifecycle) |
+| Trigger | `ATLAS_TRIGGER` set | Journal reminder (if today's entry missing), then exit 0 |
+
+### Journal Reminder (Trigger Sessions)
+
+For trigger sessions, the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
 
 ## pre-compact-auto.sh
 
@@ -59,9 +62,9 @@ Uses channel-specific templates:
 - `app/prompts/trigger-{CHANNEL}-pre-compact.md`
 - `app/prompts/trigger-pre-compact.md` (fallback)
 
-### Main Session Mode
+### Non-Trigger Mode
 
-Outputs generic memory flush instructions.
+Outputs generic memory flush instructions (fallback for sessions without a trigger-specific template).
 
 ## pre-compact-manual.sh
 

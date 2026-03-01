@@ -29,60 +29,6 @@ function err(message: string) {
   };
 }
 
-/** Wake a trigger session if it's awaiting this task */
-function wakeTriggerIfAwaiting(taskId: number, responseSummary: string): void {
-  const db = getDb();
-
-  // Single JOIN query to get all wake data at once
-  const awaiter = db
-    .prepare(
-      `SELECT ta.trigger_name, ta.session_key,
-            COALESCE(ts.session_id, '') AS session_id,
-            COALESCE(t.channel, 'internal') AS channel
-     FROM task_awaits ta
-     LEFT JOIN trigger_sessions ts ON ts.trigger_name = ta.trigger_name AND ts.session_key = ta.session_key
-     LEFT JOIN triggers t ON t.name = ta.trigger_name
-     WHERE ta.task_id = ?`,
-    )
-    .get(taskId) as
-    | {
-        trigger_name: string;
-        session_key: string;
-        session_id: string;
-        channel: string;
-      }
-    | undefined;
-
-  if (!awaiter) return;
-
-  // Write wake file for watcher — JSON with everything needed to re-awaken the trigger
-  // Use per-task filename to prevent overwrite when two tasks complete for the same trigger
-  const wakeData = JSON.stringify({
-    task_id: taskId,
-    trigger_name: awaiter.trigger_name,
-    session_key: awaiter.session_key,
-    session_id: awaiter.session_id,
-    channel: awaiter.channel,
-    response_summary: responseSummary,
-  });
-
-  const indexDir = process.env.HOME + "/.index";
-  mkdirSync(indexDir, { recursive: true });
-  try {
-    writeFileSync(
-      `${indexDir}/.wake-${awaiter.trigger_name}-${taskId}`,
-      wakeData,
-    );
-  } catch (e) {
-    // Leave task_awaits intact — watcher startup scan will recover this
-    console.error(`[wake] Failed to write wake file for task ${taskId}: ${e}`);
-    return;
-  }
-
-  // Only delete AFTER wake file is confirmed on disk
-  db.prepare("DELETE FROM task_awaits WHERE task_id = ?").run(taskId);
-}
-
 const server = new McpServer({
   name: "inbox-mcp",
   version: "2.0.0",

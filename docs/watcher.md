@@ -49,12 +49,12 @@ The `dispatch_pending_tasks` function is the core scheduling logic:
 
 ### Path Lock Checking
 
-Path conflicts are checked directly via SQLite:
+Path conflicts are checked via the `hasPathConflict()` function in `locks.ts`, which uses safe `substr`-based prefix comparison:
 
 ```sql
-SELECT COUNT(*) FROM path_locks
-WHERE '<normalized_path>' LIKE locked_path || '%'  -- ancestor locked
-   OR locked_path LIKE '<normalized_path>' || '%'   -- descendant locked
+SELECT task_id FROM path_locks
+WHERE substr(?, 1, length(locked_path)) = locked_path  -- ancestor locked
+   OR substr(locked_path, 1, length(?)) = ?             -- descendant locked
 ```
 
 Tasks without a path are always dispatchable since they don't lock any paths.

@@ -66,7 +66,7 @@ When `review=true` for a task, the task-runner spawns a review agent after the w
 ### Reviewer Session
 
 - **Mode**: `--mode reviewer`
-- **MCP**: None (`app/.mcp-reviewer.json`)
+- **MCP**: Playwright (`app/.mcp-reviewer.json`) — for visual verification of results
 - **Input**: Original task description + worker's result
 - **For tasks with `path`**: Also reviews changed files for quality, security, performance
 
@@ -167,6 +167,7 @@ workers:
 | File | Purpose |
 |------|---------|
 | `app/task-runner.sh` | Task lifecycle orchestrator |
+| `app/inbox-mcp/update-task.ts` | CLI: parameterized task status/result updates |
 | `app/inbox-mcp/locks.ts` | Path locking module |
 | `app/inbox-mcp/acquire-lock.ts` | CLI: acquire path lock |
 | `app/inbox-mcp/release-lock.ts` | CLI: release path lock |
@@ -174,6 +175,6 @@ workers:
 | `app/prompts/worker-ephemeral-prompt.md` | Ephemeral worker prompt |
 | `app/prompts/reviewer-system-prompt.md` | Review agent prompt |
 | `app/.mcp-worker.json` | Worker MCP config (Playwright only) |
-| `app/.mcp-reviewer.json` | Reviewer MCP config (empty) |
+| `app/.mcp-reviewer.json` | Reviewer MCP config (Playwright only) |
 | `/tmp/task-runner-<id>.pid` | PID file for crash recovery |
 | `/atlas/logs/task-runner-<id>.log` | Per-task log |

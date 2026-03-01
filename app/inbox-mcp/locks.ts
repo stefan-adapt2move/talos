@@ -7,20 +7,23 @@ export function normalizePath(p: string): string {
   return abs.endsWith("/") ? abs : abs + "/";
 }
 
-/** Check if a new path conflicts with any existing lock (bidirectional) */
+/**
+ * Check if a new path conflicts with any existing lock (bidirectional).
+ * Uses substr-based prefix comparison instead of LIKE to avoid metacharacter issues.
+ */
 export function hasPathConflict(path: string): { task_id: number; locked_path: string } | null {
   const db = getDb();
   const norm = normalizePath(path);
 
-  // Check both directions:
-  // 1. New path is under an existing lock (ancestor locked)
-  // 2. Existing lock is under the new path (descendant locked)
+  // Check both directions using substr for safe prefix matching:
+  // 1. New path starts with an existing lock (ancestor locked)
+  // 2. Existing lock starts with the new path (descendant locked)
   const conflict = db.prepare(
     `SELECT task_id, locked_path FROM path_locks
-     WHERE ? LIKE locked_path || '%'
-        OR locked_path LIKE ? || '%'
+     WHERE substr(?, 1, length(locked_path)) = locked_path
+        OR substr(locked_path, 1, length(?)) = ?
      LIMIT 1`
-  ).get(norm, norm) as { task_id: number; locked_path: string } | undefined;
+  ).get(norm, norm, norm) as { task_id: number; locked_path: string } | undefined;
 
   return conflict || null;
 }
@@ -34,10 +37,10 @@ export function acquirePathLock(taskId: number, path: string, pid?: number): boo
   const txn = db.transaction(() => {
     const conflict = db.prepare(
       `SELECT task_id, locked_path FROM path_locks
-       WHERE ? LIKE locked_path || '%'
-          OR locked_path LIKE ? || '%'
+       WHERE substr(?, 1, length(locked_path)) = locked_path
+          OR substr(locked_path, 1, length(?)) = ?
        LIMIT 1`
-    ).get(norm, norm);
+    ).get(norm, norm, norm);
 
     if (conflict) return false;
 
