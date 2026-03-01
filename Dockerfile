@@ -83,6 +83,7 @@ RUN mkdir -p /atlas/app/hooks \
 # Copy application code
 COPY app/ /atlas/app/
 COPY .claude/settings.json /atlas/app/.claude/settings.json
+COPY .claude/agents/ /atlas/app/defaults/agents/
 
 # Set execute permissions
 RUN chmod +x /atlas/app/entrypoint.sh \
