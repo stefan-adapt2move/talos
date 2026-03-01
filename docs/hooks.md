@@ -6,7 +6,11 @@ Claude Code hooks inject context at lifecycle events. Hooks are shell scripts th
 
 Runs when Claude wakes up. Loads memory context and inbox status.
 
-### Behavior
+### Ephemeral Worker / Reviewer Mode
+
+If `ATLAS_WORKER_EPHEMERAL=1` or `ATLAS_REVIEWER=1`, the hook exits immediately. These sessions don't need memory context — the task description provides all necessary context.
+
+### Trigger / Legacy Worker Mode
 
 Outputs XML-wrapped sections:
 
@@ -32,49 +36,28 @@ Outputs XML-wrapped sections:
    </inbox-status>
    ```
 
-Note: Identity is loaded separately via CLAUDE.md system prompt injection.
-
 ## stop.sh
 
-Runs after Claude finishes a response. Handles inbox checking and sleep orchestration.
+Runs after Claude finishes a response. Handles session lifecycle.
 
-### Daily Cleanup Mode
+### Session Mode Behavior
 
-If `ATLAS_CLEANUP=1`, touches `.cleanup-done` and exits immediately.
+| Mode | Environment Variable | Behavior |
+|------|---------------------|----------|
+| Daily cleanup | `ATLAS_CLEANUP=1` | Touch `.cleanup-done`, exit 0 |
+| Trigger | `ATLAS_TRIGGER` set | Exit 0 (watcher handles re-awakening) |
+| Ephemeral worker | `ATLAS_WORKER_EPHEMERAL=1` | Exit 0 (task-runner manages lifecycle) |
+| Reviewer | `ATLAS_REVIEWER=1` | Exit 0 (task-runner manages lifecycle) |
+| Legacy worker | None of the above | Check inbox, continue or sleep |
 
-### Trigger Session Mode
+### Legacy Worker Mode
 
-If `ATLAS_TRIGGER` is set, exits immediately with code 0. Trigger sessions don't loop on inbox; the watcher handles re-awakening via `.wake-<trigger>-<task_id>` files.
+For backward compatibility with `--mode worker`:
 
-### Main Session Mode
-
-1. **Save session ID**: Writes `CLAUDE_SESSION_ID` (or finds most recent session file) to `.last-session-id`
-
-2. **Check for active tasks**: If any task has `status='processing'`, outputs a warning and exits code 2 (continue processing):
-   ```xml
-   <active-task-warning>
-   [{"id": 42, "sender": "trigger:email", "content": "..."}]
-   </active-task-warning>
-   <task-instruction>
-   You have an active task still in 'processing' status.
-   Complete it with task_complete(task_id=<id>, response_summary="<result>") before stopping.
-   </task-instruction>
-   ```
-
-3. **Check for pending tasks**: If any task has `status='pending'`, outputs instruction and exits code 2:
-   ```xml
-   <pending-tasks>
-   You have 3 pending task(s) in the queue.
-   </pending-tasks>
-   <task-instruction>
-   Use get_next_task() to pick up and process the next task.
-   </task-instruction>
-   ```
-
-4. **Sleep**: If no active or pending tasks, outputs a journal reminder and exits code 0:
-   ```
-   No pending tasks. Write a short journal entry to memory/YYYY-MM-DD.md if you accomplished something relevant today.
-   ```
+1. **Save session ID** to `.last-session-id`
+2. **Check active tasks** → exit 2 (continue) if found
+3. **Check pending tasks** → exit 2 (continue) if found
+4. **Sleep** → exit 0 with journal reminder
 
 Exit codes: 0 = sleep, 2 = continue processing
 
@@ -84,32 +67,13 @@ Runs before automatic context compaction. Prompts memory flush.
 
 ### Trigger Session Mode
 
-For trigger sessions (`ATLAS_TRIGGER` set), uses channel-specific templates:
-
+Uses channel-specific templates:
 - `app/prompts/trigger-{CHANNEL}-pre-compact.md`
 - `app/prompts/trigger-pre-compact.md` (fallback)
 
-Outputs `<system-notice>` with pre-compaction instructions.
-
-Then outputs `<system-reminder>` with post-compaction context from:
-- `app/prompts/trigger-{CHANNEL}-compact.md`
-- `app/prompts/trigger-compact.md` (fallback)
-
 ### Main Session Mode
 
-Outputs generic memory flush instructions:
-
-```xml
-<system-notice>
-Context is about to be compressed. Consolidate important findings:
-
-1. Write lasting facts, decisions, and preferences to memory/MEMORY.md
-2. Write task results and daily context to memory/{TODAY}.md
-3. If a project topic is relevant, create/update a file in memory/projects/
-
-MEMORY.md is for long-term, timeless information. The journal is for daily details.
-</system-notice>
-```
+Outputs generic memory flush instructions.
 
 ## pre-compact-manual.sh
 
@@ -117,30 +81,12 @@ Runs before manual context compaction (when user runs `/compact`). Same behavior
 
 ## subagent-stop.sh
 
-Runs when a team member (subagent) finishes. Quality gate that prompts evaluation:
-
-```
-=== SUBAGENT RESULT REVIEW ===
-
-A team member has completed their task. Review:
-
-1. Was the original task fully completed?
-2. Are there obvious errors or gaps in the result?
-3. Does it need rework or is the result acceptable?
-
-If the result is incomplete or flawed:
-- Describe what is missing
-- Decide whether to re-assign the subagent
-
-If the result is good:
-- Integrate it into the main context
-- Mark the related task as done
-```
+Runs when a team member (subagent) finishes. Quality gate that prompts evaluation.
 
 ## Source
 
-`app/hooks/session-start.sh` — Context loading
-`app/hooks/stop.sh` — Inbox checking and sleep
-`app/hooks/pre-compact-auto.sh` — Memory flush (auto compaction)
-`app/hooks/pre-compact-manual.sh` — Memory flush (manual compaction)
-`app/hooks/subagent-stop.sh` — Quality gate
+- `app/hooks/session-start.sh` — Context loading
+- `app/hooks/stop.sh` — Session lifecycle
+- `app/hooks/pre-compact-auto.sh` — Memory flush (auto compaction)
+- `app/hooks/pre-compact-manual.sh` — Memory flush (manual compaction)
+- `app/hooks/subagent-stop.sh` — Quality gate

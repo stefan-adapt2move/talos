@@ -1,10 +1,9 @@
 #!/bin/bash
-# Stop Hook: Inbox check + sleep orchestration
+# Stop Hook: Session lifecycle management
 set -euo pipefail
 
 WORKSPACE="$HOME"
 DB="$WORKSPACE/.index/atlas.db"
-SESSION_FILE="$WORKSPACE/.index/.last-session-id"
 CLEANUP_DONE="$WORKSPACE/.cleanup-done"
 
 # Daily cleanup mode - just signal done and exit
@@ -18,27 +17,36 @@ if [ -n "${ATLAS_TRIGGER:-}" ]; then
   exit 0
 fi
 
-# === Main/worker session logic below ===
+# Ephemeral worker mode — task-runner manages lifecycle, just exit
+if [ "${ATLAS_WORKER_EPHEMERAL:-}" = "1" ]; then
+  exit 0
+fi
+
+# Reviewer mode — task-runner manages lifecycle, just exit
+if [ "${ATLAS_REVIEWER:-}" = "1" ]; then
+  exit 0
+fi
+
+# === Legacy worker session logic (backward compatibility) ===
+# This code path is only reached by the old --mode worker sessions.
+# New ephemeral workers and reviewers exit above.
+
+SESSION_FILE="$WORKSPACE/.index/.last-session-id"
 
 # Save current session ID
 CURRENT_SESSION=""
-
-# Method 1: Environment variable (if set by Claude Code)
 if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
   CURRENT_SESSION="$CLAUDE_SESSION_ID"
 fi
-
-# Method 2: Most recently modified session file
 if [ -z "$CURRENT_SESSION" ]; then
   CURRENT_SESSION=$(find ~/.claude/projects/ -name "*.json" -path "*/sessions/*" -printf '%T@ %f\n' 2>/dev/null \
     | sort -rn | head -1 | awk '{print $2}' | sed 's/\.json$//' || echo "")
 fi
-
 if [ -n "$CURRENT_SESSION" ]; then
   echo "$CURRENT_SESSION" > "$SESSION_FILE"
 fi
 
-# Check for active (processing) and pending tasks in a single query
+# Check for active and pending tasks
 if [ -f "$DB" ]; then
   COUNTS=$(sqlite3 "$DB" "SELECT
     (SELECT count(*) FROM tasks WHERE status='processing'),

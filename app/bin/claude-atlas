@@ -59,13 +59,35 @@ SYSTEM_PROMPT=""
 
 
 if [ "$MODE" = "worker" ]; then
-    # Worker sessions: add worker-system-prompt only (operational, no identity/soul)
+    # Legacy worker sessions (backward compatibility)
     if [ -f "$APP_DIR/prompts/worker-system-prompt.md" ]; then
         SYSTEM_PROMPT="$SYSTEM_PROMPT
 
 ---
 
 $(cat "$APP_DIR/prompts/worker-system-prompt.md")"
+    fi
+
+elif [ "$MODE" = "worker-ephemeral" ]; then
+    # Ephemeral worker: minimal prompt, no memory, no inbox MCP
+    export ATLAS_WORKER_EPHEMERAL=1
+    if [ -f "$APP_DIR/prompts/worker-ephemeral-prompt.md" ]; then
+        SYSTEM_PROMPT="$SYSTEM_PROMPT
+
+---
+
+$(cat "$APP_DIR/prompts/worker-ephemeral-prompt.md")"
+    fi
+
+elif [ "$MODE" = "reviewer" ]; then
+    # Review agent: verifies worker output against acceptance criteria
+    export ATLAS_REVIEWER=1
+    if [ -f "$APP_DIR/prompts/reviewer-system-prompt.md" ]; then
+        SYSTEM_PROMPT="$SYSTEM_PROMPT
+
+---
+
+$(cat "$APP_DIR/prompts/reviewer-system-prompt.md")"
     fi
 
 elif [ "$MODE" = "trigger" ]; then
@@ -104,10 +126,21 @@ $(cat "$APP_DIR/prompts/trigger-channel-${CHANNEL}.md")"
     fi
 fi
 
+# Select MCP config based on mode
+MCP_CONFIG=""
+if [ "$MODE" = "worker-ephemeral" ] && [ -f "$APP_DIR/.mcp-worker.json" ]; then
+    MCP_CONFIG="$APP_DIR/.mcp-worker.json"
+elif [ "$MODE" = "reviewer" ] && [ -f "$APP_DIR/.mcp-reviewer.json" ]; then
+    MCP_CONFIG="$APP_DIR/.mcp-reviewer.json"
+fi
+
 # Build final claude arguments
 FINAL_ARGS=()
 if [ -n "$SYSTEM_PROMPT" ]; then
     FINAL_ARGS+=(--append-system-prompt "$SYSTEM_PROMPT")
+fi
+if [ -n "$MCP_CONFIG" ]; then
+    FINAL_ARGS+=(--mcp-config "$MCP_CONFIG")
 fi
 # Inject --model from config if not already provided
 if [ "$HAS_MODEL_FLAG" = false ]; then

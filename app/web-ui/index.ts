@@ -62,9 +62,13 @@ function statusColor(s: string): string {
     ? "#ff9800"
     : s === "processing"
       ? "#5c9cf5"
-      : s === "cancelled"
-        ? "#999"
-        : "#4caf50"; // done → green
+      : s === "reviewing"
+        ? "#e040fb"
+        : s === "failed"
+          ? "#f44336"
+          : s === "cancelled"
+            ? "#999"
+            : "#4caf50"; // done → green
 }
 
 function timeAgo(dt: string): string {
@@ -364,7 +368,11 @@ const app = new Hono();
 
 // ============ DASHBOARD ============
 app.get("/", (c) => {
-  const sessionRunning = existsSync(LOCK);
+  // Active worker count (tasks in processing/reviewing state)
+  const activeWorkers = (db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status IN ('processing', 'reviewing')").get() as any)?.c || 0;
+
+  // Active path locks
+  const activeLocks = (db.prepare("SELECT COUNT(*) as c FROM path_locks").get() as any)?.c || 0;
 
   // Task statistics (from tasks table)
   const taskStatusCounts = db
@@ -378,9 +386,9 @@ app.get("/", (c) => {
   // Inbox message count
   const inboxTotal = (db.prepare("SELECT COUNT(*) as c FROM messages").get() as any)?.c || 0;
 
-  // Active tasks (pending or processing)
+  // Active tasks (pending, processing, reviewing)
   const activeTasks = db
-    .prepare("SELECT * FROM tasks WHERE status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 10")
+    .prepare("SELECT * FROM tasks WHERE status IN ('pending', 'processing', 'reviewing') ORDER BY created_at DESC LIMIT 10")
     .all() as any[];
 
   // Recent completed tasks (done or cancelled)
@@ -402,13 +410,14 @@ app.get("/", (c) => {
     <h1>Dashboard</h1>
     <div class="grid">
       <div class="stat">
-        <div class="num" style="color:${sessionRunning ? "#4caf50" : "#999"}">${sessionRunning ? "ON" : "OFF"}</div>
-        <div class="label">Session</div>
+        <div class="num" style="color:${activeWorkers > 0 ? "#4caf50" : "#999"}">${activeWorkers}</div>
+        <div class="label">Workers</div>
       </div>
       <div class="stat"><div class="num" style="color:#ff9800">${taskCounts["pending"] || 0}</div><div class="label">Pending</div></div>
       <div class="stat"><div class="num" style="color:#5c9cf5">${taskCounts["processing"] || 0}</div><div class="label">Processing</div></div>
+      <div class="stat"><div class="num" style="color:#e040fb">${taskCounts["reviewing"] || 0}</div><div class="label">Reviewing</div></div>
       <div class="stat"><div class="num" style="color:#4caf50">${taskCounts["done"] || 0}</div><div class="label">Done</div></div>
-      <div class="stat"><div class="num" style="color:#999">${taskCounts["cancelled"] || 0}</div><div class="label">Cancelled</div></div>
+      <div class="stat"><div class="num" style="color:#f44336">${taskCounts["failed"] || 0}</div><div class="label">Failed</div></div>
       <div class="stat"><div class="num">${inboxTotal}</div><div class="label">Inbox</div></div>
     </div>
 
@@ -1034,12 +1043,12 @@ app.get("/tasks", (c) => {
     .prepare(
       `SELECT ta.task_id, ta.trigger_name, ta.session_key, ta.created_at, t.status as task_status, t.content
      FROM task_awaits ta JOIN tasks t ON ta.task_id = t.id
-     WHERE t.status IN ('pending', 'processing')
+     WHERE t.status IN ('pending', 'processing', 'reviewing')
      ORDER BY ta.created_at DESC`,
     )
     .all() as any[];
 
-  const filters = ["", "pending", "processing", "done", "cancelled"];
+  const filters = ["", "pending", "processing", "reviewing", "done", "failed", "cancelled"];
   const filterHtml = filters
     .map(
       (f) =>
@@ -1061,7 +1070,9 @@ app.get("/tasks", (c) => {
     <div class="grid">
       <div class="stat"><div class="num" style="color:#ff9800">${tc["pending"] || 0}</div><div class="label">Pending</div></div>
       <div class="stat"><div class="num" style="color:#5c9cf5">${tc["processing"] || 0}</div><div class="label">Processing</div></div>
+      <div class="stat"><div class="num" style="color:#e040fb">${tc["reviewing"] || 0}</div><div class="label">Reviewing</div></div>
       <div class="stat"><div class="num" style="color:#4caf50">${tc["done"] || 0}</div><div class="label">Done</div></div>
+      <div class="stat"><div class="num" style="color:#f44336">${tc["failed"] || 0}</div><div class="label">Failed</div></div>
       <div class="stat"><div class="num" style="color:#999">${tc["cancelled"] || 0}</div><div class="label">Cancelled</div></div>
     </div>
 
@@ -1088,16 +1099,17 @@ app.get("/tasks", (c) => {
 
     <div class="mb-16">${filterHtml}</div>
     <table>
-      <tr><th>ID</th><th>Trigger</th><th>Content</th><th>Status</th><th>Response</th><th>Created</th></tr>
+      <tr><th>ID</th><th>Type</th><th>Trigger</th><th>Content</th><th>Status</th><th>Path</th><th>Created</th></tr>
       ${tasks
         .map(
           (t) => `
         <tr class="msg-row" hx-get="/tasks/${t.id}" hx-target="#task-detail-${t.id}" hx-swap="innerHTML">
           <td>#${t.id}</td>
+          <td><span class="badge" style="background:${t.type === "research" ? "#00bcd420" : "#7c6ef020"};color:${t.type === "research" ? "#00bcd4" : "#7c6ef0"}">${t.type || "code"}</span></td>
           <td><span class="badge" style="background:#7c6ef020;color:#7c6ef0">${safe(t.trigger_name)}</span></td>
           <td>${safe((t.content || "").slice(0, 80))}${t.content?.length > 80 ? "..." : ""}</td>
-          <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}</span></td>
-          <td class="text-muted">${t.response_summary ? safe(t.response_summary.slice(0, 60)) + (t.response_summary.length > 60 ? "..." : "") : "-"}</td>
+          <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}${t.review_iteration > 0 ? ` (r${t.review_iteration})` : ""}</span></td>
+          <td class="text-muted" style="font-size:11px">${t.path ? safe(t.path.replace(/^\/home\/atlas\//, "~/")) : "-"}</td>
           <td class="text-muted">${timeAgo(t.created_at)}</td>
         </tr>
         <tr id="task-detail-${t.id}"></tr>
@@ -1121,14 +1133,22 @@ app.get("/tasks/:id", (c) => {
     .prepare("SELECT * FROM task_awaits WHERE task_id = ?")
     .get(task.id) as any;
 
-  return c.html(`<td colspan="6"><div class="msg-detail">
+  return c.html(`<td colspan="7"><div class="msg-detail">
     <strong>ID:</strong> ${task.id} | <strong>Trigger:</strong> ${safe(task.trigger_name)} | <strong>Status:</strong> ${task.status}
+    | <strong>Type:</strong> ${task.type || "code"} | <strong>Review:</strong> ${task.review ? "yes" : "no"}${task.review_iteration > 0 ? ` (iteration ${task.review_iteration})` : ""}
+    ${task.path ? `<br><strong>Path:</strong> <code>${safe(task.path)}</code>` : ""}
     <br><strong>Created:</strong> ${task.created_at}
     ${task.processed_at ? `| <strong>Processed:</strong> ${task.processed_at}` : ""}
     ${awaiter ? `<br><strong>Awaited by:</strong> ${safe(awaiter.trigger_name)} (key: ${safe(awaiter.session_key)})` : ""}
     <hr style="border-color:#3a3b55;margin:8px 0">
     <strong>Content:</strong>
 <pre style="margin:4px 0;white-space:pre-wrap">${safe(task.content)}</pre>
+    ${
+      task.worker_result
+        ? `<hr style="border-color:#3a3b55;margin:8px 0"><strong>Worker Result:</strong>
+<pre style="margin:4px 0;white-space:pre-wrap">${safe(task.worker_result)}</pre>`
+        : ""
+    }
     ${
       task.response_summary
         ? `<hr style="border-color:#3a3b55;margin:8px 0"><strong>Response:</strong>

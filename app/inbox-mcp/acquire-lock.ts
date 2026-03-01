@@ -1,0 +1,30 @@
+#!/usr/bin/env bun
+/**
+ * CLI: Acquire a path lock for a task.
+ * Usage: bun run acquire-lock.ts <task_id> <path> [pid]
+ * Output: "acquired" or "conflict:<task_id>"
+ * Exit:   0 = acquired, 1 = conflict
+ */
+import { acquirePathLock, hasPathConflict } from "./locks";
+
+const [taskId, path, pid] = process.argv.slice(2);
+
+if (!taskId || !path) {
+  console.error("Usage: acquire-lock.ts <task_id> <path> [pid]");
+  process.exit(2);
+}
+
+const conflict = hasPathConflict(path);
+if (conflict) {
+  console.log(`conflict:${conflict.task_id}`);
+  process.exit(1);
+}
+
+const acquired = acquirePathLock(Number(taskId), path, pid ? Number(pid) : undefined);
+if (acquired) {
+  console.log("acquired");
+  process.exit(0);
+} else {
+  console.log("conflict");
+  process.exit(1);
+}

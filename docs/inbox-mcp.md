@@ -1,27 +1,43 @@
 # Inbox-MCP
 
-The Inbox-MCP server provides MCP (Model Context Protocol) tools for message and trigger management. It runs as a stdio-based MCP server that Claude Code connects to directly.
+The Inbox-MCP server provides MCP (Model Context Protocol) tools for task and trigger management. It runs as a stdio-based MCP server that Claude Code connects to directly.
 
 ## Database Schema
 
-Atlas uses SQLite with WAL mode at `workspace/inbox/atlas.db`.
+Atlas uses SQLite with WAL mode at `~/.index/atlas.db`.
 
-### messages
+### tasks
 
-The task queue. Messages flow through statuses: `pending` → `processing` → `done`/`cancelled`.
+The work queue. Tasks flow through statuses: `pending` → `processing` → `reviewing` → `done`/`failed`/`cancelled`.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Auto-increment primary key |
-| channel | TEXT | Source: web, internal, signal, email, task, ... |
-| sender | TEXT | Sender identifier (nullable) |
-| content | TEXT | Message body |
-| status | TEXT | pending, processing, done, cancelled |
-| response_summary | TEXT | Task result for relay to sender |
+| trigger_name | TEXT | Origin trigger that created this task |
+| content | TEXT | Task description with acceptance criteria |
+| status | TEXT | pending, processing, reviewing, done, failed, cancelled |
+| path | TEXT | Optional working directory for the task |
+| type | TEXT | `code` (default) or `research` |
+| review | INTEGER | 1=review enabled, 0=skip review |
+| review_iteration | INTEGER | Current review loop iteration |
+| worker_result | TEXT | JSON result from the worker |
+| response_summary | TEXT | Final result relayed to trigger |
 | created_at | TEXT | ISO datetime |
 | processed_at | TEXT | ISO datetime |
 
 Index: `(status, created_at)` for efficient queue queries.
+
+### path_locks
+
+Tracks which paths are locked by running tasks for parallel execution control.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-increment primary key |
+| task_id | INTEGER | References tasks(id), unique |
+| locked_path | TEXT | Normalized absolute path with trailing `/` |
+| pid | INTEGER | Task-runner PID for crash recovery |
+| locked_at | TEXT | ISO datetime |
 
 ### task_awaits
 
@@ -30,44 +46,34 @@ Tracks which trigger session is waiting for a task result. When a task completes
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Auto-increment primary key |
-| task_id | INTEGER | References messages(id) |
+| task_id | INTEGER | References tasks(id) |
 | trigger_name | TEXT | Trigger waiting for result |
 | session_key | TEXT | Session key for persistent triggers |
+| created_at | TEXT | ISO datetime |
+
+### messages
+
+External event log (signal, email, web). Fire-and-forget — no status tracking.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-increment primary key |
+| channel | TEXT | Source channel |
+| sender | TEXT | Sender identifier |
+| content | TEXT | Message body |
 | created_at | TEXT | ISO datetime |
 
 ### trigger_sessions
 
 Maps `(trigger_name, session_key)` to Claude session IDs for persistent triggers.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Auto-increment primary key |
-| trigger_name | TEXT | Trigger identifier |
-| session_key | TEXT | Session key (e.g., thread ID, sender) |
-| session_id | TEXT | Claude session ID to resume |
-| updated_at | TEXT | ISO datetime |
-
-Unique constraint: `(trigger_name, session_key)`
-
 ### triggers
 
 Trigger definitions for cron, webhook, and manual triggers.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Auto-increment primary key |
-| name | TEXT | Unique slug (e.g., `github-check`) |
-| type | TEXT | cron, webhook, manual |
-| description | TEXT | Human-readable description |
-| channel | TEXT | Inbox channel for messages |
-| schedule | TEXT | Cron expression (for type=cron) |
-| webhook_secret | TEXT | Optional auth secret |
-| prompt | TEXT | Prompt template (`{{payload}}` for webhooks) |
-| session_mode | TEXT | ephemeral or persistent |
-| enabled | INTEGER | 1=active, 0=disabled |
-| last_run | TEXT | Last execution timestamp |
-| run_count | INTEGER | Total executions |
-| created_at | TEXT | ISO datetime |
+### session_metrics
+
+Per-invocation cost and token tracking for all session types.
 
 ## Tool Specifications
 
@@ -75,19 +81,24 @@ Tools are registered conditionally based on the `ATLAS_TRIGGER` environment vari
 
 ### Trigger Tools (ATLAS_TRIGGER is set)
 
-These tools are available to trigger sessions (read-only, filtering/escalation role):
+These tools are available to trigger sessions (project manager role):
 
 #### task_create
 
-Create a task for the worker session. Automatically wakes the worker and registers for re-awakening when done.
+Create a task for execution. Automatically writes `.wake-task-<id>` and registers for re-awakening.
 
 ```typescript
 {
-  content: string  // Task brief with full context
+  content: string,           // Task description with acceptance criteria (self-contained)
+  path?: string,             // Working directory (e.g. "/home/atlas/projects/myapp")
+  type?: "code" | "research", // Default: "code"
+  review?: boolean            // Default: true
 }
 ```
 
-Returns the created message with ID. The trigger session is automatically registered in `task_awaits` to be re-awakened when the task completes.
+- Tasks with non-overlapping `path` values run in parallel
+- Research tasks (no path) always run in parallel
+- `review: false` skips the review agent
 
 #### task_get
 
@@ -121,117 +132,39 @@ Cancel a pending task. Only works if status is `pending`.
 }
 ```
 
-### Worker Tools (ATLAS_TRIGGER is not set)
+#### task_lock_status
 
-These tools are available to the main worker session (read/write):
+View active path locks. Shows which directories are currently locked by running tasks.
 
-#### get_next_task
+Returns: `{ active_workers: number, locks: [...] }`
 
-Atomically get and claim the next pending task. Updates status from `pending` to `processing`. Warns if you already have an active task.
+### Worker Tools (Legacy — ATLAS_TRIGGER is not set)
 
-Returns the next task or `{ next_task: null }` if empty.
+These tools exist for backward compatibility with the legacy persistent worker (`--mode worker`). New ephemeral workers don't use inbox MCP at all — the task-runner manages their lifecycle.
 
-#### task_complete
+- `get_next_task` — Claim next pending task
+- `task_complete` — Mark task done
+- `task_list` — List tasks
+- `task_get` — Get task by ID
+- `inbox_stats` — Queue statistics
 
-Mark a task as done with a response summary. The summary is relayed to the original sender, so write it as an actual reply.
+## Task Lifecycle (New)
 
-```typescript
-{
-  task_id: number,
-  response_summary: string
-}
-```
-
-When a task completes, the server checks `task_awaits` and writes a `.wake-<trigger>-<task_id>` file to re-awaken the trigger session.
-
-#### task_list
-
-List tasks in the queue.
-
-```typescript
-{
-  status?: string  // pending, processing, done, cancelled (default: pending)
-  limit?: number   // Default: 20
-}
-```
-
-#### task_get
-
-Get a specific task by ID (same as trigger version).
-
-#### inbox_stats
-
-Get queue statistics: total count, breakdown by status, breakdown by channel.
-
-### Shared Tools (always available)
-
-#### trigger_list
-
-List all configured triggers.
-
-```typescript
-{
-  type?: string  // Filter: cron, webhook, manual
-}
-```
-
-#### trigger_create
-
-Create a new trigger.
-
-```typescript
-{
-  name: string,              // Unique slug (lowercase, alphanumeric, -_)
-  type: "cron" | "webhook" | "manual",
-  description?: string,
-  channel?: string,          // Default: "internal"
-  schedule?: string,         // Required for cron (e.g., "0 * * * *")
-  webhook_secret?: string,   // For webhook auth
-  prompt?: string,           // Use {{payload}} for webhook data
-  session_mode?: "ephemeral" | "persistent"  // Default: "ephemeral"
-}
-```
-
-Returns trigger details plus `webhook_url` and auth hints for webhook types.
-
-#### trigger_update
-
-Update an existing trigger. Only specified fields are changed.
-
-```typescript
-{
-  name: string,
-  description?: string,
-  channel?: string,
-  schedule?: string,
-  webhook_secret?: string,
-  prompt?: string,
-  session_mode?: "ephemeral" | "persistent",
-  enabled?: boolean
-}
-```
-
-#### trigger_delete
-
-Delete a trigger and clean up associated sessions and awaits.
-
-```typescript
-{
-  name: string
-}
-```
-
-## Message Lifecycle
-
-1. **Creation**: A message is INSERTed with `status='pending'`
-2. **Wake**: The `.wake` file is touched, signaling the watcher
-3. **Claim**: Worker calls `get_next_task()` → status becomes `processing`
-4. **Processing**: Worker processes the task
-5. **Completion**: Worker calls `task_complete()` → status becomes `done'`
-6. **Trigger Wake**: If a trigger was waiting, a `.wake-<trigger>-<id>` file is created
-7. **Re-awaken**: The trigger session resumes and receives the response
+1. **Creation**: Trigger calls `task_create()` → task inserted as `pending`
+2. **Wake**: `.wake-task-<id>` file written → watcher dispatches
+3. **Dispatch**: Watcher checks locks/capacity → spawns `task-runner.sh`
+4. **Lock**: Task-runner acquires path lock → status `processing`
+5. **Execute**: Ephemeral worker runs task → returns JSON result
+6. **Review**: If enabled, reviewer checks result → may iterate
+7. **Complete**: Status `done`, lock released, `.wake-<trigger>-<id>` written
+8. **Re-awaken**: Watcher resumes trigger session with result
+9. **Next**: `.wake` touched → watcher dispatches next pending tasks
 
 ## Source
 
-`app/inbox-mcp/index.ts` — Main MCP server
-`app/inbox-mcp/db.ts` — Database initialization and schema
+- `app/inbox-mcp/index.ts` — Main MCP server
+- `app/inbox-mcp/db.ts` — Database initialization, schema, migrations
+- `app/inbox-mcp/locks.ts` — Path locking module
+- `app/inbox-mcp/acquire-lock.ts` — CLI: acquire path lock
+- `app/inbox-mcp/release-lock.ts` — CLI: release path lock
+- `app/inbox-mcp/wake-trigger.ts` — CLI: wake trigger session

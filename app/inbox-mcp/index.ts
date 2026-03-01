@@ -95,22 +95,42 @@ if (IS_TRIGGER) {
   // --- task_create: Create a task for the worker session ---
   server.tool(
     "task_create",
-    "Create a task for the worker session. Automatically wakes the worker and registers for re-awakening when done.",
+    "Create a task for the worker session. Automatically wakes a task-runner and registers for re-awakening when done. Tasks with non-overlapping paths can run in parallel.",
     {
       content: z
         .string()
         .describe(
-          "Task brief with full context (self-contained — worker has no access to this conversation)",
+          "Task brief with full context, including acceptance criteria / definition of done (self-contained — worker has no access to this conversation)",
+        ),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Optional working directory path for the task. Code tasks should specify the project directory (e.g. '/home/atlas/projects/myapp'). The path and all subdirectories are locked during execution. Tasks with non-overlapping paths run in parallel. Omit for research/browser tasks.",
+        ),
+      type: z
+        .enum(["code", "research"])
+        .optional()
+        .default("code")
+        .describe(
+          "Task type: 'code' for development tasks (default), 'research' for online research or browser automation. Research tasks have no path lock and can always run in parallel.",
+        ),
+      review: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          "Whether a review agent should verify the work before marking it done. Default: true. Set to false for simple or low-risk tasks.",
         ),
     },
-    async ({ content }) => {
+    async ({ content, path, type, review }) => {
       const db = getDb();
 
       const task = db
         .prepare(
-          "INSERT INTO tasks (trigger_name, content) VALUES (?, ?) RETURNING *",
+          "INSERT INTO tasks (trigger_name, content, path, type, review) VALUES (?, ?, ?, ?, ?) RETURNING *",
         )
-        .get(ATLAS_TRIGGER, content) as any;
+        .get(ATLAS_TRIGGER, content, path || null, type || "code", review ? 1 : 0) as any;
       const taskId = task.id;
 
       // Auto-register for re-awakening
@@ -118,10 +138,14 @@ if (IS_TRIGGER) {
         "INSERT OR REPLACE INTO task_awaits (task_id, trigger_name, session_key) VALUES (?, ?, ?)",
       ).run(taskId, ATLAS_TRIGGER, ATLAS_TRIGGER_SESSION_KEY);
 
-      // Touch wake file to wake the worker session
+      // Write per-task wake file to signal the watcher
       const indexDir2 = process.env.HOME + "/.index";
       mkdirSync(indexDir2, { recursive: true });
-      touchFile(indexDir2 + "/.wake");
+      writeFileSync(`${indexDir2}/.wake-task-${taskId}`, JSON.stringify({
+        task_id: taskId,
+        path: path || null,
+        type: type || "code",
+      }));
 
       return ok(task);
     },
@@ -196,10 +220,31 @@ if (IS_TRIGGER) {
     },
   );
 
+  // --- task_lock_status: View active path locks ---
+  server.tool(
+    "task_lock_status",
+    "View active path locks to understand which directories are currently locked by running tasks.",
+    {},
+    async () => {
+      const db = getDb();
+      const locks = db.prepare(
+        `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status, t.type
+         FROM path_locks pl
+         JOIN tasks t ON t.id = pl.task_id
+         ORDER BY pl.locked_at ASC`
+      ).all();
+      const activeCount = db.prepare(
+        "SELECT COUNT(*) as count FROM tasks WHERE status IN ('processing', 'reviewing')"
+      ).get() as { count: number };
+      return ok({ active_workers: activeCount.count, locks });
+    },
+  );
 }
 
 // =============================================================================
 // WORKER TOOLS — only registered when ATLAS_TRIGGER is NOT set
+// These are kept for backward compatibility but are no longer used by
+// ephemeral workers. The task-runner.sh manages the task lifecycle directly.
 // =============================================================================
 if (!IS_TRIGGER) {
   // --- get_next_task: Atomically get and claim next pending task ---

@@ -2,6 +2,11 @@
 # SessionStart Hook: Loads identity + memory into Claude's context
 set -euo pipefail
 
+# Ephemeral workers and reviewers: no memory context needed
+if [ "${ATLAS_WORKER_EPHEMERAL:-}" = "1" ] || [ "${ATLAS_REVIEWER:-}" = "1" ]; then
+  exit 0
+fi
+
 WORKSPACE="$HOME"
 IDENTITY="$WORKSPACE/IDENTITY.md"
 SOUL="$WORKSPACE/SOUL.md"

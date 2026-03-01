@@ -23,7 +23,12 @@ function createTables(database: Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trigger_name TEXT NOT NULL,
       content TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','cancelled')),
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','reviewing','done','failed','cancelled')),
+      path TEXT,
+      type TEXT DEFAULT 'code' CHECK(type IN ('code','research')),
+      review INTEGER DEFAULT 1,
+      review_iteration INTEGER DEFAULT 0,
+      worker_result TEXT,
       response_summary TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       processed_at TEXT
@@ -66,6 +71,18 @@ function createTables(database: Database): void {
       last_run TEXT,
       run_count INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Path locks: per-task filesystem locking for parallel execution
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS path_locks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL UNIQUE,
+      locked_path TEXT NOT NULL,
+      pid INTEGER,
+      locked_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES tasks(id)
     );
   `);
 
@@ -312,6 +329,43 @@ function migrateSchema(database: Database): void {
         DROP TABLE _messages_pre_split;
       `);
 
+      database.exec("COMMIT");
+    } catch (e) {
+      database.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  // Migrate tasks table: add new columns for ephemeral worker system
+  const tasksInfo = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+  ).get() as { sql: string } | undefined;
+
+  if (tasksInfo?.sql && !tasksInfo.sql.includes("worker_result")) {
+    // Add new columns and expand status CHECK constraint
+    database.exec("BEGIN");
+    try {
+      database.exec(`
+        ALTER TABLE tasks RENAME TO _tasks_pre_ephemeral;
+        CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trigger_name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','reviewing','done','failed','cancelled')),
+          path TEXT,
+          type TEXT DEFAULT 'code' CHECK(type IN ('code','research')),
+          review INTEGER DEFAULT 1,
+          review_iteration INTEGER DEFAULT 0,
+          worker_result TEXT,
+          response_summary TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          processed_at TEXT
+        );
+        INSERT INTO tasks (id, trigger_name, content, status, response_summary, created_at, processed_at)
+          SELECT id, trigger_name, content, status, response_summary, created_at, processed_at FROM _tasks_pre_ephemeral;
+        DROP TABLE _tasks_pre_ephemeral;
+        CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
+      `);
       database.exec("COMMIT");
     } catch (e) {
       database.exec("ROLLBACK");
