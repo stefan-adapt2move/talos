@@ -37,7 +37,8 @@ email:
 
 daily_cleanup:
   enabled: true
-  max_turns: 5
+  retention_days: 30 # How long to keep completed tasks, messages, etc.
+  metrics_retention_days: 90 # How long to keep session metrics
 
 workers:
   max_parallel: 3 # Maximum parallel task-runners (code + research)
