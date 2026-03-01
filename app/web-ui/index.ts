@@ -1282,6 +1282,7 @@ app.get("/analytics", (c) => {
   function typeBadge(t: string): string {
     const colors: Record<string, string> = {
       worker: "#5c9cf5",
+      reviewer: "#e040fb",
       trigger: "#7c6ef0",
       "trigger-relay": "#ff9800",
     };
@@ -1306,7 +1307,7 @@ app.get("/analytics", (c) => {
     return s ? `?${s}` : "/analytics";
   };
 
-  const typeOptions = ["", "worker", "trigger", "trigger-relay"];
+  const typeOptions = ["", "worker", "reviewer", "trigger", "trigger-relay"];
   const typeSelect = `<select name="type" onchange="this.form.submit()" style="width:auto;padding:4px 8px;font-size:12px">
     ${typeOptions.map(t => `<option value="${t}"${filterType === t ? " selected" : ""}>${t || "All types"}</option>`).join("")}
   </select>`;
