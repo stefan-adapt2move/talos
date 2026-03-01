@@ -188,10 +188,10 @@ Relay this result to the original sender now."
       echo "[$(date)] Resuming trigger $TRIGGER_NAME (session=$SESSION_ID)" | tee -a "$LOG"
       RELAY_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       RELAY_OUT=$(mktemp /tmp/relay-out-XXXXXX.json)
+      RELAY_EXIT=0
       ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
         claude-atlas --mode trigger --output-format json --resume "$SESSION_ID" \
-        --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || true
-      RELAY_EXIT=$?
+        --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || RELAY_EXIT=$?
       RELAY_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       python3 -c "
 import json,sys
@@ -243,6 +243,13 @@ startup_recovery() {
     [ -f "$f" ] || continue
     [[ "$(basename "$f")" == .wake-task-* ]] && continue  # Already handled above
     echo "[$(date)] Startup recovery: stale trigger wake file $(basename "$f")"
+    # Extract task_id from wake file and clean up task_awaits to prevent
+    # Pass 4 from creating a duplicate wake (race between writeFileSync and DELETE)
+    local WAKE_TASK_ID_CLEANUP
+    WAKE_TASK_ID_CLEANUP=$(jq -r '.task_id // empty' "$f" 2>/dev/null || true)
+    if [ -n "$WAKE_TASK_ID_CLEANUP" ]; then
+      sqlite3 "$DB" "DELETE FROM task_awaits WHERE task_id = $WAKE_TASK_ID_CLEANUP" 2>/dev/null || true
+    fi
     handle_trigger_wake "$f"
   done
 

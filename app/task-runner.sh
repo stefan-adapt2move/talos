@@ -259,21 +259,40 @@ Note: This is a code task. In addition to checking completeness against the acce
       break
     fi
 
-    # Parse verdict from reviewer result
+    # Parse verdict from reviewer result (handles nested JSON like issues arrays)
     VERDICT=$(python3 -c "
 import json, sys, re
 text = sys.argv[1]
-# Try to find JSON block in the output
-m = re.search(r'\{[^{}]*\"verdict\"[^{}]*\}', text, re.DOTALL)
-if m:
+# Find all JSON objects (including nested braces) using a brace-depth counter
+def find_json_objects(s):
+    results = []
+    i = 0
+    while i < len(s):
+        if s[i] == '{':
+            depth = 0
+            start = i
+            while i < len(s):
+                if s[i] == '{': depth += 1
+                elif s[i] == '}': depth -= 1
+                if depth == 0:
+                    results.append(s[start:i+1])
+                    break
+                i += 1
+        i += 1
+    return results
+for candidate in find_json_objects(text):
     try:
-        d = json.loads(m.group())
-        print(d.get('verdict', 'approve'))
-        sys.exit(0)
-    except: pass
-# Fallback: look for keywords
+        d = json.loads(candidate)
+        if 'verdict' in d:
+            print(d['verdict'])
+            sys.exit(0)
+    except: continue
+# Fallback: look for the last occurrence of verdict keyword near end of text
+# (reviewer is instructed to put verdict at the end)
 lower = text.lower()
-if 'revise' in lower and 'approve' not in lower:
+last_revise = lower.rfind('\"revise\"')
+last_approve = lower.rfind('\"approve\"')
+if last_revise > last_approve:
     print('revise')
 else:
     print('approve')
