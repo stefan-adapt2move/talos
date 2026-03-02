@@ -1502,6 +1502,11 @@ app.get("/sessions", (c) => {
 app.get("/sessions/:sessionId", (c) => {
   const sessionId = c.req.param("sessionId");
 
+  // Reject sessionIds that aren't safe alphanumeric/hyphen identifiers to prevent path traversal
+  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+    return c.html(`<td colspan="7"><div class="msg-detail text-muted">Invalid session ID.</div></td>`);
+  }
+
   let row: any = null;
   try {
     row = db.prepare("SELECT * FROM session_metrics WHERE session_id = ?").get(sessionId) as any;
