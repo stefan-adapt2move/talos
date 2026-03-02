@@ -58,11 +58,9 @@ home/
 │   └── agents/ →              # Symlink to ~/agents
 ├── .index/                     # System state (was inbox/)
 │   ├── atlas.db               # SQLite database (WAL mode)
-│   ├── .wake                  # Wake signal file
+│   ├── .wake                  # Re-dispatch signal for watcher
+│   ├── .wake-task-*           # Per-task wake files (dispatch signal)
 │   ├── .wake-*                # Trigger re-awakening files
-│   ├── .last-session-id       # Last main session ID
-│   ├── .session-running       # Session lock indicator
-│   ├── .session.flock         # flock file for main session concurrency
 │   ├── signal/                # Signal databases (per number)
 │   └── email/                 # Email databases (per account)
 ├── memory/                     # Long-term memory

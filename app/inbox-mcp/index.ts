@@ -29,60 +29,6 @@ function err(message: string) {
   };
 }
 
-/** Wake a trigger session if it's awaiting this task */
-function wakeTriggerIfAwaiting(taskId: number, responseSummary: string): void {
-  const db = getDb();
-
-  // Single JOIN query to get all wake data at once
-  const awaiter = db
-    .prepare(
-      `SELECT ta.trigger_name, ta.session_key,
-            COALESCE(ts.session_id, '') AS session_id,
-            COALESCE(t.channel, 'internal') AS channel
-     FROM task_awaits ta
-     LEFT JOIN trigger_sessions ts ON ts.trigger_name = ta.trigger_name AND ts.session_key = ta.session_key
-     LEFT JOIN triggers t ON t.name = ta.trigger_name
-     WHERE ta.task_id = ?`,
-    )
-    .get(taskId) as
-    | {
-        trigger_name: string;
-        session_key: string;
-        session_id: string;
-        channel: string;
-      }
-    | undefined;
-
-  if (!awaiter) return;
-
-  // Write wake file for watcher — JSON with everything needed to re-awaken the trigger
-  // Use per-task filename to prevent overwrite when two tasks complete for the same trigger
-  const wakeData = JSON.stringify({
-    task_id: taskId,
-    trigger_name: awaiter.trigger_name,
-    session_key: awaiter.session_key,
-    session_id: awaiter.session_id,
-    channel: awaiter.channel,
-    response_summary: responseSummary,
-  });
-
-  const indexDir = process.env.HOME + "/.index";
-  mkdirSync(indexDir, { recursive: true });
-  try {
-    writeFileSync(
-      `${indexDir}/.wake-${awaiter.trigger_name}-${taskId}`,
-      wakeData,
-    );
-  } catch (e) {
-    // Leave task_awaits intact — watcher startup scan will recover this
-    console.error(`[wake] Failed to write wake file for task ${taskId}: ${e}`);
-    return;
-  }
-
-  // Only delete AFTER wake file is confirmed on disk
-  db.prepare("DELETE FROM task_awaits WHERE task_id = ?").run(taskId);
-}
-
 const server = new McpServer({
   name: "inbox-mcp",
   version: "2.0.0",
@@ -95,22 +41,35 @@ if (IS_TRIGGER) {
   // --- task_create: Create a task for the worker session ---
   server.tool(
     "task_create",
-    "Create a task for the worker session. Automatically wakes the worker and registers for re-awakening when done.",
+    "Create a task for the worker session. Automatically wakes a task-runner and registers for re-awakening when done. Tasks with non-overlapping paths can run in parallel.",
     {
       content: z
         .string()
         .describe(
-          "Task brief with full context (self-contained — worker has no access to this conversation)",
+          "Task brief with full context, including acceptance criteria / definition of done (self-contained — worker has no access to this conversation)",
+        ),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Optional working directory path for the task. Specify the project directory (e.g. '/home/atlas/projects/myapp'). The path and all subdirectories are locked during execution, preventing conflicting parallel writes. Tasks with non-overlapping paths run in parallel. Omit for tasks that don't modify files (research, browser automation, etc.).",
+        ),
+      review: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          "Whether a review agent should verify the work before marking it done. Default: true. Set to false for simple or low-risk tasks.",
         ),
     },
-    async ({ content }) => {
+    async ({ content, path, review }) => {
       const db = getDb();
 
       const task = db
         .prepare(
-          "INSERT INTO tasks (trigger_name, content) VALUES (?, ?) RETURNING *",
+          "INSERT INTO tasks (trigger_name, content, path, review) VALUES (?, ?, ?, ?) RETURNING *",
         )
-        .get(ATLAS_TRIGGER, content) as any;
+        .get(ATLAS_TRIGGER, content, path || null, review ? 1 : 0) as any;
       const taskId = task.id;
 
       // Auto-register for re-awakening
@@ -118,10 +77,13 @@ if (IS_TRIGGER) {
         "INSERT OR REPLACE INTO task_awaits (task_id, trigger_name, session_key) VALUES (?, ?, ?)",
       ).run(taskId, ATLAS_TRIGGER, ATLAS_TRIGGER_SESSION_KEY);
 
-      // Touch wake file to wake the worker session
+      // Write per-task wake file to signal the watcher
       const indexDir2 = process.env.HOME + "/.index";
       mkdirSync(indexDir2, { recursive: true });
-      touchFile(indexDir2 + "/.wake");
+      writeFileSync(`${indexDir2}/.wake-task-${taskId}`, JSON.stringify({
+        task_id: taskId,
+        path: path || null,
+      }));
 
       return ok(task);
     },
@@ -196,154 +158,25 @@ if (IS_TRIGGER) {
     },
   );
 
-}
-
-// =============================================================================
-// WORKER TOOLS — only registered when ATLAS_TRIGGER is NOT set
-// =============================================================================
-if (!IS_TRIGGER) {
-  // --- get_next_task: Atomically get and claim next pending task ---
+  // --- task_lock_status: View active path locks ---
   server.tool(
-    "get_next_task",
-    "Get the next pending task and mark it as processing. Warns if you already have an active task.",
+    "task_lock_status",
+    "View active path locks to understand which directories are currently locked by running tasks.",
     {},
     async () => {
       const db = getDb();
-
-      // Check for stuck active task first
-      const active = db
-        .prepare(
-          "SELECT * FROM tasks WHERE status = 'processing' ORDER BY created_at ASC LIMIT 1",
-        )
-        .get();
-      if (active) {
-        return ok({
-          warning:
-            "You already have an active task. Complete it before starting the next.",
-          active_task: active,
-        });
-      }
-
-      // Atomically claim next pending in a single statement
-      const next = db
-        .prepare(
-          `UPDATE tasks SET status = 'processing', processed_at = datetime('now')
-         WHERE id = (SELECT id FROM tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1)
-         RETURNING *`,
-        )
-        .get() as any;
-      if (!next) {
-        return ok({ next_task: null, message: "No pending tasks." });
-      }
-
-      return ok({ next_task: next });
+      const locks = db.prepare(
+        `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status
+         FROM path_locks pl
+         JOIN tasks t ON t.id = pl.task_id
+         ORDER BY pl.locked_at ASC`
+      ).all();
+      const activeCount = db.prepare(
+        "SELECT COUNT(*) as count FROM tasks WHERE status IN ('processing', 'reviewing')"
+      ).get() as { count: number };
+      return ok({ active_workers: activeCount.count, locks });
     },
   );
-
-  // --- task_complete: Mark task done and wake trigger ---
-  server.tool(
-    "task_complete",
-    "Mark a task as done with a response summary. The summary is relayed directly to the original sender — write it as the actual reply.",
-    {
-      task_id: z.number().describe("ID of the task to complete"),
-      response_summary: z
-        .string()
-        .describe(
-          "Result to relay to the sender. Write as a real reply, not 'Done.'",
-        ),
-    },
-    async ({ task_id, response_summary }) => {
-      const db = getDb();
-      const result = db
-        .prepare(
-          "UPDATE tasks SET status = 'done', response_summary = ?, processed_at = datetime('now') WHERE id = ? AND status = 'processing'",
-        )
-        .run(response_summary, task_id);
-
-      if (result.changes === 0) {
-        const task = db
-          .prepare("SELECT status FROM tasks WHERE id = ?")
-          .get(task_id) as { status: string } | undefined;
-        if (!task) return err(`Task ${task_id} not found`);
-        return err(
-          `Task ${task_id} is '${task.status}' — can only complete tasks in 'processing' status`,
-        );
-      }
-
-      // Wake the trigger session that created this task
-      wakeTriggerIfAwaiting(task_id, response_summary);
-
-      return ok(db.prepare("SELECT * FROM tasks WHERE id = ?").get(task_id));
-    },
-  );
-
-  // --- task_list: View task queue ---
-  server.tool(
-    "task_list",
-    "List tasks in the queue",
-    {
-      status: z
-        .string()
-        .optional()
-        .default("pending")
-        .describe("Filter: pending, processing, done, cancelled"),
-      limit: z.number().optional().default(20).describe("Max results"),
-    },
-    async ({ status, limit }) => {
-      const db = getDb();
-      return ok(
-        db
-          .prepare(
-            "SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC LIMIT ?",
-          )
-          .all(status, limit),
-      );
-    },
-  );
-
-  // --- task_get: Inspect specific task ---
-  server.tool(
-    "task_get",
-    "Get a specific task by ID — check its status and response_summary",
-    {
-      task_id: z.number().describe("ID of the task to retrieve"),
-    },
-    async ({ task_id }) => {
-      const db = getDb();
-      const task = db
-        .prepare("SELECT * FROM tasks WHERE id = ?")
-        .get(task_id);
-      if (!task) return err(`Task ${task_id} not found`);
-      return ok(task);
-    },
-  );
-
-  // --- inbox_stats: Queue statistics ---
-  server.tool("inbox_stats", "Get inbox and task queue statistics", {}, async () => {
-    const db = getDb();
-    const msgByStatus = db
-      .prepare("SELECT status, COUNT(*) as count FROM messages GROUP BY status")
-      .all() as { status: string; count: number }[];
-    const taskByStatus = db
-      .prepare("SELECT status, COUNT(*) as count FROM tasks GROUP BY status")
-      .all() as { status: string; count: number }[];
-    const msgTotal = (
-      db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number }
-    ).count;
-    const taskTotal = (
-      db.prepare("SELECT COUNT(*) as count FROM tasks").get() as { count: number }
-    ).count;
-    return ok({
-      inbox: {
-        total: msgTotal,
-        by_status: Object.fromEntries(msgByStatus.map((r) => [r.status, r.count])),
-      },
-      tasks: {
-        total: taskTotal,
-        by_status: Object.fromEntries(taskByStatus.map((r) => [r.status, r.count])),
-      },
-    });
-  });
 }
 
 // --- Start server ---

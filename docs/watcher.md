@@ -1,6 +1,6 @@
 # Watcher
 
-The watcher is an event-driven wake system that monitors for filesystem events and resumes Claude sessions when work arrives. It uses `inotifywait` for efficient monitoring without polling.
+The watcher is an event-driven dispatch system that monitors for filesystem events, manages task parallelism, and resumes trigger sessions when tasks complete. It uses `inotifywait` for efficient monitoring without polling.
 
 ## Implementation
 
@@ -13,58 +13,55 @@ inotifywait -m "$WATCH_DIR" -e create,modify,attrib \
   --exclude '\.(db|wal|shm)$' \
   --format '%f' | while read FILENAME; do
   # Handle wake events
- done
+done
 ```
 
-## .wake File Mechanism
+## Wake File Patterns
 
-The main session is awakened by touching `.wake` in `/home/atlas/.index/`:
+### `.wake-task-<id>` — New Task Signal
 
-```bash
-touch /home/atlas/.index/.wake
+Created by `task_create()` when a trigger creates a task. The watcher:
+
+1. Removes the wake file (task stays pending in DB)
+2. Calls `dispatch_pending_tasks`
+
+### `.wake` — Re-dispatch Signal
+
+Touched by task-runners when they finish. The watcher calls `dispatch_pending_tasks` to check for pending tasks that can now be dispatched (freed path locks, available slots).
+
+### `.wake-<trigger>-<task_id>` — Trigger Re-awakening
+
+Created by `wake-trigger.ts` when a task completes. Contains JSON with the task result. The watcher resumes the trigger session with the result.
+
+## Task Dispatch
+
+The `dispatch_pending_tasks` function is the core scheduling logic:
+
+1. Read `max_parallel` from `config.yml` (default: 3)
+2. Count active workers (tasks in `processing`/`reviewing` state)
+3. If at capacity → skip
+4. Query pending tasks ordered by `created_at`
+5. For each pending task:
+   - If has `path` → check for lock conflicts (bidirectional)
+   - If conflict → skip this task
+   - If no conflict (or no path) → spawn `task-runner.sh <task_id>` in background
+6. Re-check active count after each dispatch
+
+### Path Lock Checking
+
+Path conflicts are checked via the `hasPathConflict()` function in `locks.ts`, which uses safe `substr`-based prefix comparison:
+
+```sql
+SELECT task_id FROM path_locks
+WHERE substr(?, 1, length(locked_path)) = locked_path  -- ancestor locked
+   OR substr(locked_path, 1, length(?)) = ?             -- descendant locked
 ```
 
-When the watcher detects `.wake`:
-
-1. Acquires exclusive lock via `flock` (prevents concurrent sessions)
-2. Creates `.session-running` lock file (web-ui status indicator)
-3. Reads session ID from `.last-session-id`
-4. Disables remote MCP connectors (patches `~/.claude.json`)
-5. Resumes or starts Claude session:
-   ```bash
-   claude-atlas --mode worker --resume "$SESSION_ID" -p \
-     "You have new tasks. Use get_next_task() to process them."
-   ```
-6. Removes `.session-running` when done
-
-## Concurrency Control
-
-### Main Session Lock
-
-Uses `flock` on `.session.flock` for atomic locking:
-
-```bash
-(
-  flock -n 9 || { echo "Session already running"; exit 0; }
-  # ... run session
-) 9>".session.flock"
-```
-
-The lock automatically releases if the process crashes or is killed.
-
-### Trigger Session Locks
-
-Each trigger has its own lock file to prevent concurrent runs:
-
-```bash
-flock -n 200 || { echo "Trigger $TRIGGER_NAME already running"; exit 0; }
-# ... run trigger
-) 200>".trigger-${TRIGGER_NAME}.flock"
-```
+Tasks without a path are always dispatchable since they don't lock any paths.
 
 ## Trigger Re-awakening
 
-When a worker completes a task created by a trigger, the trigger session is re-awakened via `.wake-<trigger>-<task_id>` files.
+When a task-runner completes a task that was created by a trigger, the trigger session is re-awakened via `.wake-<trigger>-<task_id>` files.
 
 ### Wake File Format
 
@@ -83,42 +80,55 @@ JSON file at `.wake-<trigger_name>-<task_id>`:
 
 ### Re-awakening Process
 
-1. Watcher detects `.wake-*` file pattern
+1. Watcher detects `.wake-*` file (excluding `.wake-task-*`)
 2. Runs in background (doesn't block main watcher)
 3. Acquires per-trigger flock
-4. Atomically moves wake file to temp (prevents race conditions)
+4. Atomically moves wake file to temp
 5. Parses JSON fields
-6. Resumes trigger session with result message:
-   ```
-   Task #42 completed. Here is the worker's result:
+6. Resumes trigger session with result message
+7. If no session ID, falls back to spawning via `trigger.sh`
 
-   <response_summary>
+## Startup Recovery
 
-   Relay this result to the original sender now.
-   ```
+On startup, the watcher performs recovery:
 
-7. If no session ID exists, falls back to spawning via `trigger.sh`
+1. **Clean stale path locks** — Check PIDs in `path_locks`; if dead, delete lock and reset task to pending
+2. **Reset stuck tasks** — Any task in `processing`/`reviewing` without a lock entry is reset to `pending`
+3. **Remove stale `.wake-task-*` files** — Tasks are still pending in DB
+4. **Process stale `.wake-<trigger>-*` files** — Re-awaken triggers
+5. **Re-create missing trigger wakes** — For done tasks still in `task_awaits`
+6. **Initial dispatch** — Process any pending tasks
 
-### Environment Variables for Trigger Sessions
+## Concurrency Control
 
-When re-awakening, these are set:
+### Trigger Session Locks
 
-- `ATLAS_TRIGGER=<trigger_name>`
-- `ATLAS_TRIGGER_CHANNEL=<channel>`
-- `ATLAS_TRIGGER_SESSION_KEY=<session_key>`
+Each trigger has its own lock file to prevent concurrent runs:
+
+```bash
+flock -n 200 || { echo "Trigger already running"; exit 0; }
+) 200>".trigger-${TRIGGER_NAME}.flock"
+```
+
+### Task-Level Concurrency
+
+Managed via:
+- `max_parallel` config — Overall limit on concurrent task-runners
+- `path_locks` SQLite table — Per-task path locking
+- PID files in `/tmp/` — Crash detection
 
 ## Log Files
 
-- `/atlas/logs/session.log` — Main session output
+- `/atlas/logs/watcher.log` — Watcher dispatch events
+- `/atlas/logs/task-runner-<id>.log` — Per-task runner logs
 - `/atlas/logs/trigger-<name>.log` — Per-trigger session output
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `.wake` | Signals main session wake |
-| `.wake-<trigger>-<id>` | Signals trigger re-awakening with result |
-| `.last-session-id` | Stores last main session ID for resume |
-| `.session-running` | Lock file indicating active main session |
-| `.session.flock` | flock file for main session concurrency |
+| `.wake` | Re-dispatch signal (task completed, check for more) |
+| `.wake-task-<id>` | New task created, trigger dispatch |
+| `.wake-<trigger>-<id>` | Trigger re-awakening with result |
 | `.trigger-<name>.flock` | flock file per trigger |
+| `/tmp/task-runner-<id>.pid` | Task-runner PID for crash recovery |

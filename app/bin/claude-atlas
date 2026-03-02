@@ -47,7 +47,27 @@ if [ "$HAS_MODEL_FLAG" = false ]; then
 
     MODEL="sonnet"  # default fallback
     if [ -n "$CONFIG" ]; then
-        PARSED_MODEL=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['models']['main'])" 2>/dev/null) || true
+        # Resolve model based on session mode
+        # Mode-to-config mapping: trigger→trigger, worker/worker-ephemeral→worker, reviewer→reviewer
+        # Cron triggers set ATLAS_CRON=1 to select the cron model
+        MODEL_KEY="worker"  # default for unknown modes
+        case "$MODE" in
+            trigger)
+                if [ "${ATLAS_CRON:-}" = "1" ]; then
+                    MODEL_KEY="cron"
+                else
+                    MODEL_KEY="trigger"
+                fi
+                ;;
+            worker-ephemeral) MODEL_KEY="worker" ;;
+            reviewer) MODEL_KEY="reviewer" ;;
+        esac
+        PARSED_MODEL=$(python3 -c "
+import yaml, sys
+c = yaml.safe_load(open(sys.argv[1]))
+models = c.get('models', {})
+print(models.get(sys.argv[2], models.get('worker', 'sonnet')))
+" "$CONFIG" "$MODEL_KEY" 2>/dev/null) || true
         if [ -n "$PARSED_MODEL" ]; then
             MODEL="$PARSED_MODEL"
         fi
@@ -58,14 +78,26 @@ fi
 SYSTEM_PROMPT=""
 
 
-if [ "$MODE" = "worker" ]; then
-    # Worker sessions: add worker-system-prompt only (operational, no identity/soul)
-    if [ -f "$APP_DIR/prompts/worker-system-prompt.md" ]; then
+if [ "$MODE" = "worker-ephemeral" ]; then
+    # Ephemeral worker: minimal prompt, no memory, no inbox MCP
+    export ATLAS_WORKER_EPHEMERAL=1
+    if [ -f "$APP_DIR/prompts/worker-ephemeral-prompt.md" ]; then
         SYSTEM_PROMPT="$SYSTEM_PROMPT
 
 ---
 
-$(cat "$APP_DIR/prompts/worker-system-prompt.md")"
+$(cat "$APP_DIR/prompts/worker-ephemeral-prompt.md")"
+    fi
+
+elif [ "$MODE" = "reviewer" ]; then
+    # Review agent: verifies worker output against acceptance criteria
+    export ATLAS_REVIEWER=1
+    if [ -f "$APP_DIR/prompts/reviewer-system-prompt.md" ]; then
+        SYSTEM_PROMPT="$SYSTEM_PROMPT
+
+---
+
+$(cat "$APP_DIR/prompts/reviewer-system-prompt.md")"
     fi
 
 elif [ "$MODE" = "trigger" ]; then
@@ -104,10 +136,21 @@ $(cat "$APP_DIR/prompts/trigger-channel-${CHANNEL}.md")"
     fi
 fi
 
+# Select MCP config based on mode
+# Base config ($HOME/.mcp.json) is auto-discovered by all modes (playwright only).
+# Triggers additionally get inbox + memory via the generated trigger config.
+MCP_CONFIG=""
+if [ "$MODE" = "trigger" ] && [ -f "$HOME/.mcp-trigger.json" ]; then
+    MCP_CONFIG="$HOME/.mcp-trigger.json"
+fi
+
 # Build final claude arguments
 FINAL_ARGS=()
 if [ -n "$SYSTEM_PROMPT" ]; then
     FINAL_ARGS+=(--append-system-prompt "$SYSTEM_PROMPT")
+fi
+if [ -n "$MCP_CONFIG" ]; then
+    FINAL_ARGS+=(--mcp-config "$MCP_CONFIG")
 fi
 # Inject --model from config if not already provided
 if [ "$HAS_MODEL_FLAG" = false ]; then

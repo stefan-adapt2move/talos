@@ -29,8 +29,10 @@ fi
 # Disable remote MCP connectors that hang on startup
 disable_remote_mcp() {
   [ -f "$CLAUDE_JSON" ] || return 0
+  local TMP
+  TMP=$(mktemp "${CLAUDE_JSON}.XXXXXX")
   jq '.cachedGrowthBookFeatures.tengu_claudeai_mcp_connectors = false' \
-    "$CLAUDE_JSON" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+    "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON" || rm -f "$TMP"
 }
 
 # Safe template substitution using Python (no sed injection risk from payload content)
@@ -161,9 +163,10 @@ TRIGGER_OUT=$(mktemp /tmp/trigger-out-XXXXXX.json)
 
 # Unset CLAUDECODE so spawning a trigger session while a worker is running doesn't fail
 # with "Claude Code cannot be launched inside another Claude Code session"
+TRIGGER_EXIT=0
 ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
   env -u CLAUDECODE \
-  claude-atlas --mode trigger "${CLAUDE_ARGS[@]}" --output-format json "$PROMPT" < /dev/null > "$TRIGGER_OUT" 2>>"$LOG" || true
+  claude-atlas --mode trigger "${CLAUDE_ARGS[@]}" --output-format json "$PROMPT" < /dev/null > "$TRIGGER_OUT" 2>>"$LOG" || TRIGGER_EXIT=$?
 
 # Log the text result from JSON output
 python3 -c "
@@ -193,9 +196,9 @@ except: print('')
 fi
 
 TRIGGER_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-python3 - "$TRIGGER_OUT" "$TRIGGER_NAME" "$TRIGGER_START" "$TRIGGER_END" << 'PYEOF'
+python3 - "$TRIGGER_OUT" "$TRIGGER_NAME" "$TRIGGER_START" "$TRIGGER_END" "$TRIGGER_EXIT" << 'PYEOF'
 import json, sys, sqlite3, os
-f, tname, started, ended = sys.argv[1:]
+f, tname, started, ended, exit_code = sys.argv[1:]
 try:
     d = json.load(open(f))
 except:
@@ -219,7 +222,7 @@ conn.execute('''INSERT OR IGNORE INTO session_metrics
     int(usage.get('cache_creation_input_tokens') or 0),
     float(d.get('total_cost_usd') or d.get('cost_usd') or 0),
     int(d.get('num_turns') or 0),
-    0,
+    1 if str(exit_code) != '0' else 0,
 ))
 conn.commit()
 conn.close()

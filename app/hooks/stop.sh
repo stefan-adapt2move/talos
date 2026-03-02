@@ -1,85 +1,26 @@
 #!/bin/bash
-# Stop Hook: Inbox check + sleep orchestration
+# Stop Hook: Session lifecycle management
 set -euo pipefail
 
-WORKSPACE="$HOME"
-DB="$WORKSPACE/.index/atlas.db"
-SESSION_FILE="$WORKSPACE/.index/.last-session-id"
-CLEANUP_DONE="$WORKSPACE/.cleanup-done"
-
-# Daily cleanup mode - just signal done and exit
-if [ "${ATLAS_CLEANUP:-}" = "1" ]; then
-  touch "$CLEANUP_DONE"
+# Ephemeral workers and reviewers: lifecycle managed by task-runner
+if [ "${ATLAS_WORKER_EPHEMERAL:-}" = "1" ] || [ "${ATLAS_REVIEWER:-}" = "1" ]; then
   exit 0
 fi
 
-# Trigger session mode — just exit, watcher handles re-awakening
+# Trigger sessions: remind to write a journal if today's entry doesn't exist
 if [ -n "${ATLAS_TRIGGER:-}" ]; then
-  exit 0
-fi
-
-# === Main/worker session logic below ===
-
-# Save current session ID
-CURRENT_SESSION=""
-
-# Method 1: Environment variable (if set by Claude Code)
-if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
-  CURRENT_SESSION="$CLAUDE_SESSION_ID"
-fi
-
-# Method 2: Most recently modified session file
-if [ -z "$CURRENT_SESSION" ]; then
-  CURRENT_SESSION=$(find ~/.claude/projects/ -name "*.json" -path "*/sessions/*" -printf '%T@ %f\n' 2>/dev/null \
-    | sort -rn | head -1 | awk '{print $2}' | sed 's/\.json$//' || echo "")
-fi
-
-if [ -n "$CURRENT_SESSION" ]; then
-  echo "$CURRENT_SESSION" > "$SESSION_FILE"
-fi
-
-# Check for active (processing) and pending tasks in a single query
-if [ -f "$DB" ]; then
-  COUNTS=$(sqlite3 "$DB" "SELECT
-    (SELECT count(*) FROM tasks WHERE status='processing'),
-    (SELECT count(*) FROM tasks WHERE status='pending');" 2>/dev/null || echo "0|0")
-
-  ACTIVE=$(echo "$COUNTS" | cut -d'|' -f1)
-  PENDING=$(echo "$COUNTS" | cut -d'|' -f2)
-
-  if [ "$ACTIVE" -gt 0 ]; then
-    ACTIVE_TASK=$(sqlite3 -json "$DB" \
-      "SELECT id, trigger_name, content FROM tasks WHERE status='processing' ORDER BY created_at ASC LIMIT 1;" \
-      2>/dev/null || echo "[]")
-
-    if [ -n "$ACTIVE_TASK" ] && [ "$ACTIVE_TASK" != "[]" ]; then
-      {
-        echo "<active-task-warning>"
-        echo "$ACTIVE_TASK"
-        echo "</active-task-warning>"
-        echo "<task-instruction>"
-        echo "You have an active task still in 'processing' status."
-        echo "Complete it with task_complete(task_id=<id>, response_summary=\"<result>\") before stopping."
-        echo "The response_summary is relayed directly to the original sender — write it as a real reply."
-        echo "</task-instruction>"
-      } >&2
-      exit 2
-    fi
-  fi
-
-  if [ "$PENDING" -gt 0 ]; then
-    {
-      echo "<pending-tasks>"
-      echo "You have $PENDING pending task(s) in the queue."
-      echo "</pending-tasks>"
-      echo "<task-instruction>"
-      echo "Use get_next_task() to pick up and process the next task."
-      echo "</task-instruction>"
-    } >&2
-    exit 2
+  TODAY=$(date +%Y-%m-%d)
+  JOURNAL_DIR="$HOME/memory/journal"
+  # Check if a journal file starting with today's date exists
+  if [ -d "$JOURNAL_DIR" ] && ls "$JOURNAL_DIR/${TODAY}"*.md 1>/dev/null 2>&1; then
+    : # Journal already exists for today
+  else
+    echo "<system-notice>"
+    echo "JOURNAL REMINDER: You have not written a journal entry for today ($TODAY)."
+    echo "Before ending this session, please write your daily journal to: memory/journal/${TODAY}.md"
+    echo "Include: key activities, task results, decisions made, and anything to carry forward."
+    echo "</system-notice>"
   fi
 fi
 
-# No pending or active tasks — sleep
-echo "No pending tasks. Write a short journal entry to memory/journal/$(date +%Y-%m-%d).md if you accomplished something relevant today."
 exit 0

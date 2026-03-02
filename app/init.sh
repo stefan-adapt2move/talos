@@ -183,10 +183,17 @@ for d in "$HOME/skills/"*/; do
 done
 echo "  Skills discovery dir rebuilt: $HOME/.claude/skills/"
 
-# Agents: simple symlink to atlas-created agents dir
-rm -f "$HOME/.claude/agents"
-ln -sfn "$HOME/agents" "$HOME/.claude/agents"
-echo "  Agents symlinked: $HOME/.claude/agents -> $HOME/agents"
+# Agents: merged directory with system defaults + user agents
+# System agent specs (from image) are copied as defaults, user agents override
+rm -rf "$HOME/.claude/agents"
+mkdir -p "$HOME/.claude/agents"
+for f in /atlas/app/defaults/agents/*.md; do
+  [ -f "$f" ] && ln -sfn "$f" "$HOME/.claude/agents/$(basename $f)"
+done
+for f in "$HOME/agents/"*.md; do
+  [ -f "$f" ] && ln -sfn "$f" "$HOME/.claude/agents/$(basename $f)"
+done
+echo "  Agents discovery dir rebuilt: $HOME/.claude/agents/"
 
 # Disable remote MCP connectors (claudeai-mcp) that cause session hangs.
 if [ -f "$HOME/.claude.json" ] && command -v jq &>/dev/null; then

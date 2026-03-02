@@ -1,6 +1,6 @@
 # Triggers
 
-Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a filter, and only escalates to the main session when needed.
+Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a project manager, and delegates work to ephemeral task-runners.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ Event arrives (cron / webhook / manual)
 ┌─────────────────────────────┐
 │  trigger.sh <trigger-name>  │
 │  Spawns own Claude session  │
-│  (read-only, MCP access)    │
+│  (PM role, MCP access)      │
 └──────────┬──────────────────┘
            │
      ┌─────┴──────┐
@@ -22,22 +22,24 @@ Event arrives (cron / webhook / manual)
        ┌───┘        └───┐
        ▼                ▼
 ┌──────────────┐  ┌──────────────────────┐
-│ Respond      │  │ inbox_write() to     │
-│ directly     │  │ main session (1..N   │
-│ (CLI tools,  │  │ tasks) → .wake       │
-│  MCP action) │  │ → watcher → main     │
-└──────────────┘  └──────────────────────┘
+│ Respond      │  │ task_create() with   │
+│ directly     │  │ content, path, review│
+│ (CLI tools,  │  │ → .wake-task-<id>    │
+│  MCP action) │  │ → watcher dispatches │
+└──────────────┘  │ → task-runner.sh     │
+                  │ → result via .wake   │
+                  └──────────────────────┘
 ```
 
-### Trigger Sessions vs Main Session
+### Session Types
 
-| | Trigger Session | Main Session |
-|---|---|---|
-| **Access** | Read-only workspace | Read/write workspace |
-| **Role** | Filter, triage, quick response | Complex tasks, write operations |
-| **MCPs** | inbox, qmd (for research/actions) | inbox, qmd (full access) |
-| **Spawned by** | `trigger.sh` per event | `watcher.sh` on `.wake` |
-| **Session persistence** | Configurable per trigger | Always persistent |
+| | Trigger Session | Ephemeral Worker | Review Agent |
+|---|---|---|---|
+| **Role** | Project manager, user communication | Execute a single task | Verify worker output |
+| **Access** | Workspace (PM scope) | Read/write workspace | Read workspace |
+| **MCPs** | inbox-mcp, qmd | Playwright only | Playwright only |
+| **Spawned by** | `trigger.sh` per event | `task-runner.sh` per task | `task-runner.sh` after worker |
+| **Session persistence** | Configurable per trigger | Fresh per task | Fresh per task |
 
 ### Session Modes
 
@@ -127,7 +129,7 @@ On-demand triggers. Fire via the web-ui "Run" button or by asking Claude.
   "schedule": "0 * * * *",
   "session_mode": "ephemeral",
   "description": "Hourly GitHub issue check",
-  "prompt": "Check GitHub repos for new issues. If there are critical issues, escalate to main session via inbox_write."
+  "prompt": "Check GitHub repos for new issues. If there are critical issues, create tasks via task_create."
 }
 ```
 
@@ -206,35 +208,36 @@ The `{{payload}}` placeholder is replaced with the request body:
 | `application/x-www-form-urlencoded` | JSON of parsed form fields |
 | Anything else | Raw text body |
 
-## Escalation Pattern
+## Task Delegation
 
-Trigger sessions act as a first-line filter. The escalation flow:
+Trigger sessions act as project managers. The delegation flow:
 
 1. **Trigger session processes the event** using its prompt
-2. **Simple case**: Handle directly — respond via CLI tools (`signal send` / `email reply`), take quick MCP actions, done
-3. **Complex case**: Write one or more tasks to the main session inbox via `inbox_write`
-4. `inbox_write` automatically touches `.wake` → watcher resumes main session
-5. Main session picks up the escalated tasks
+2. **Simple case**: Handle directly — respond via CLI tools (`signal send` / `email reply`), take quick actions, done
+3. **Complex case**: Create one or more tasks via `task_create(content, path?, review?)`
+4. `task_create` writes `.wake-task-<id>` → watcher dispatches task-runner
+5. Task-runner spawns ephemeral worker (and optional reviewer)
+6. On completion, trigger session is re-awakened with the result
 
-### Single Task Escalation
-
-```
-inbox_write(sender="trigger:github-issues", content="Review and fix issue #42: login page crashes on Safari")
-```
-
-### Multi-Task Escalation
-
-A single trigger event can produce multiple tasks:
+### Single Task Delegation
 
 ```
-inbox_write(sender="trigger:deploy-webhook", content="Update CHANGELOG.md with v2.3.0 release notes")
-inbox_write(sender="trigger:deploy-webhook", content="Run post-deploy smoke tests and report results")
-inbox_write(sender="trigger:deploy-webhook", content="Notify stakeholders about the v2.3.0 release")
+task_create(content="Review and fix issue #42: login page crashes on Safari", path="/home/atlas/projects/webapp")
+```
+
+### Multi-Task Delegation (Parallel)
+
+Tasks with non-overlapping paths run in parallel:
+
+```
+task_create(content="Update CHANGELOG.md with v2.3.0 release notes", path="/home/atlas/projects/webapp")
+task_create(content="Run post-deploy smoke tests and report results", review=false)
+task_create(content="Notify stakeholders about the v2.3.0 release", review=false)
 ```
 
 ## Integration Examples
 
-### GitHub Webhooks (Filter + Escalate)
+### GitHub Webhooks (Filter + Delegate)
 
 ```
 Name:           github-push
@@ -246,7 +249,7 @@ Prompt:         A push event was received:
                 {{payload}}
 
                 Analyze the commits. If there are only docs changes, just log it.
-                If there are code changes, escalate to main session with a summary
+                If there are code changes, create a task via task_create with a summary
                 of what changed and what needs review.
 ```
 
@@ -262,7 +265,7 @@ Prompt:         New message from Signal:
                 {{payload}}
 
                 Respond conversationally. If the message requests a complex task
-                (code changes, research report, etc.), escalate to main session.
+                (code changes, research report, etc.), delegate via task_create.
 ```
 
 ### Daily Standup (Ephemeral Cron)
@@ -273,11 +276,11 @@ Type:           Cron
 Schedule:       0 9 * * 1-5
 Session Mode:   ephemeral
 Prompt:         Prepare a standup summary using qmd_search to check recent memory.
-                If there are pending items that need attention, escalate them as
-                individual tasks to main session.
+                If there are pending items that need attention, create tasks for them
+                via task_create.
 ```
 
-### Health Check (Filter, Escalate Only on Problems)
+### Health Check (Filter, Delegate Only on Problems)
 
 ```
 Name:           health-check
@@ -285,7 +288,7 @@ Type:           Cron
 Schedule:       */30 * * * *
 Session Mode:   ephemeral
 Prompt:         Run a system health check (disk, memory, services).
-                Only escalate to main session if something needs attention.
+                Only create a task if something needs attention.
                 Otherwise, silently succeed.
 ```
 
@@ -345,23 +348,24 @@ When cron triggers are created, updated, or deleted, the crontab is automaticall
                     │ trigger.sh <name>  │
                     │ Spawns trigger     │
                     │ Claude session     │
-                    │ (read-only + MCPs) │
+                    │ (PM role + MCPs)   │
                     └────────┬───────────┘
                              │
                    ┌─────────┴─────────┐
                    │                   │
-              Handles it          Escalates via
-              directly            inbox_write()
+              Handles it          Delegates via
+              directly            task_create()
                    │                   │
                    ▼                   ▼
               ┌─────────┐    ┌────────────────┐
-              │  Done   │    │ touch .wake    │
+              │  Done   │    │ .wake-task-<id>│
               └─────────┘    └───────┬────────┘
                                      │
                                      ▼
                             ┌────────────────┐
                             │ watcher.sh     │
-                            │ → main session │
-                            │ (read/write)   │
+                            │ → task-runner  │
+                            │ → worker/review│
+                            │ → trigger wakes│
                             └────────────────┘
 ```

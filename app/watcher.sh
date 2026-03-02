@@ -4,11 +4,10 @@ set -euo pipefail
 export PATH=/atlas/app/bin:/usr/local/bin:/usr/bin:/bin:$PATH
 
 WORKSPACE="$HOME"
-SESSION_FILE=$WORKSPACE/.index/.last-session-id
+DB="$WORKSPACE/.index/atlas.db"
 WATCH_DIR=$WORKSPACE/.index
-LOCK_FILE=$WORKSPACE/.index/.session-running
-FLOCK_FILE=$WORKSPACE/.index/.session.flock
 CLAUDE_JSON="$HOME/.claude.json"
+APP_DIR="/atlas/app"
 
 source /atlas/app/hooks/failure-handler.sh
 
@@ -52,11 +51,98 @@ conn.close()
 PYEOF
 }
 
-# Disable remote MCP connectors that hang on startup.
+# Disable remote MCP connectors that hang on startup (run once, not per task-runner)
 disable_remote_mcp() {
   [ -f "$CLAUDE_JSON" ] || return 0
+  local TMP
+  TMP=$(mktemp "${CLAUDE_JSON}.XXXXXX")
   jq '.cachedGrowthBookFeatures.tengu_claudeai_mcp_connectors = false' \
-    "$CLAUDE_JSON" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+    "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON" || rm -f "$TMP"
+}
+
+# Read max_parallel from config
+read_max_parallel() {
+  local CONFIG=""
+  if [ -f "$HOME/config.yml" ]; then
+    CONFIG="$HOME/config.yml"
+  elif [ -f "$APP_DIR/defaults/config.yml" ]; then
+    CONFIG="$APP_DIR/defaults/config.yml"
+  fi
+  MAX_PARALLEL=3  # default
+  if [ -n "$CONFIG" ]; then
+    local PARSED
+    PARSED=$(python3 -c "import yaml, sys; print(yaml.safe_load(open(sys.argv[1])).get('workers',{}).get('max_parallel', 3))" "$CONFIG" 2>/dev/null) || true
+    if [ -n "$PARSED" ]; then
+      MAX_PARALLEL="$PARSED"
+    fi
+  fi
+}
+
+# Count active task-runners (tasks in processing/reviewing state)
+count_active_workers() {
+  [ -f "$DB" ] || { echo "0"; return; }
+  sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE status IN ('processing', 'reviewing');" 2>/dev/null || echo "0"
+}
+
+# Dispatch pending tasks that can be run
+dispatch_pending_tasks() {
+  [ -f "$DB" ] || return 0
+
+  read_max_parallel
+  local ACTIVE
+  ACTIVE=$(count_active_workers)
+
+  if [ "$ACTIVE" -ge "$MAX_PARALLEL" ]; then
+    echo "[$(date)] Max parallel workers reached ($ACTIVE/$MAX_PARALLEL), skipping dispatch"
+    return 0
+  fi
+
+  # Get pending tasks ordered by creation time
+  local PENDING_TASKS
+  PENDING_TASKS=$(sqlite3 -json "$DB" \
+    "SELECT id, path FROM tasks WHERE status='pending' ORDER BY created_at ASC;" \
+    2>/dev/null || echo "[]")
+
+  [ "$PENDING_TASKS" = "[]" ] && return 0
+
+  # Use process substitution to avoid subshell (so break/variables work correctly)
+  local DISPATCHED=0
+  while IFS= read -r row; do
+    # Check slots (account for tasks we just dispatched but haven't updated DB yet)
+    ACTIVE=$(count_active_workers)
+    local EFFECTIVE=$((ACTIVE + DISPATCHED))
+    if [ "$EFFECTIVE" -ge "$MAX_PARALLEL" ]; then
+      echo "[$(date)] Max parallel workers reached during dispatch ($EFFECTIVE/$MAX_PARALLEL)"
+      break
+    fi
+
+    local TASK_ID TASK_PATH
+    TASK_ID=$(printf '%s' "$row" | jq -r '.id')
+    TASK_PATH=$(printf '%s' "$row" | jq -r '.path // empty')
+
+    # Check path lock conflict using hasPathConflict (parameterized, no SQL injection)
+    if [ -n "$TASK_PATH" ]; then
+      local HAS_CONFLICT
+      HAS_CONFLICT=$(bun -e "
+        import { hasPathConflict } from '/atlas/app/inbox-mcp/locks';
+        console.log(hasPathConflict(process.argv[1]) ? '1' : '0');
+      " "$TASK_PATH" 2>/dev/null || echo "0")
+      if [ "$HAS_CONFLICT" = "1" ]; then
+        echo "[$(date)] Task $TASK_ID: path conflict for $TASK_PATH, skipping"
+        continue
+      fi
+    fi
+
+    echo "[$(date)] Dispatching task $TASK_ID (path=${TASK_PATH:-<none>})"
+    DISPATCHED=$((DISPATCHED + 1))
+
+    # Spawn task-runner in background
+    (
+      exec </dev/null >>/atlas/logs/watcher.log 2>&1
+      "$APP_DIR/task-runner.sh" "$TASK_ID" 2>&1 | tee -a "/atlas/logs/task-runner-${TASK_ID}.log" || true
+    ) &
+
+  done < <(printf '%s' "$PENDING_TASKS" | jq -c '.[]' 2>/dev/null)
 }
 
 handle_trigger_wake() {
@@ -98,16 +184,14 @@ Relay this result to the original sender now."
 
     LOG="/atlas/logs/trigger-${TRIGGER_NAME}.log"
 
-    disable_remote_mcp
-
     if [ -n "$SESSION_ID" ]; then
       echo "[$(date)] Resuming trigger $TRIGGER_NAME (session=$SESSION_ID)" | tee -a "$LOG"
       RELAY_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       RELAY_OUT=$(mktemp /tmp/relay-out-XXXXXX.json)
+      RELAY_EXIT=0
       ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
         claude-atlas --mode trigger --output-format json --resume "$SESSION_ID" \
-        --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || true
-      RELAY_EXIT=$?
+        --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || RELAY_EXIT=$?
       RELAY_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       python3 -c "
 import json,sys
@@ -126,14 +210,50 @@ except: pass
 }
 
 startup_recovery() {
-  # Pass 1: process any .wake-* files left on disk from a previous watcher run
+  # Pass 1: Clean up stale path locks (PID not running)
+  if [ -f "$DB" ]; then
+    local STALE_LOCKS
+    STALE_LOCKS=$(sqlite3 -json "$DB" "SELECT task_id, pid FROM path_locks WHERE pid IS NOT NULL;" 2>/dev/null || echo "[]")
+    if [ "$STALE_LOCKS" != "[]" ]; then
+      echo "$STALE_LOCKS" | jq -c '.[]' 2>/dev/null | while IFS= read -r row; do
+        local LOCK_TASK_ID LOCK_PID
+        LOCK_TASK_ID=$(printf '%s' "$row" | jq -r '.task_id')
+        LOCK_PID=$(printf '%s' "$row" | jq -r '.pid')
+        if ! kill -0 "$LOCK_PID" 2>/dev/null; then
+          echo "[$(date)] Startup: cleaning stale lock for task $LOCK_TASK_ID (pid $LOCK_PID dead)"
+          sqlite3 "$DB" "DELETE FROM path_locks WHERE task_id=$LOCK_TASK_ID;" 2>/dev/null || true
+          sqlite3 "$DB" "UPDATE tasks SET status='pending', processed_at=NULL WHERE id=$LOCK_TASK_ID AND status IN ('processing','reviewing');" 2>/dev/null || true
+        fi
+      done
+    fi
+
+    # Reset any stuck processing/reviewing tasks without a lock entry
+    sqlite3 "$DB" "UPDATE tasks SET status='pending', processed_at=NULL WHERE status IN ('processing','reviewing') AND id NOT IN (SELECT task_id FROM path_locks);" 2>/dev/null || true
+  fi
+
+  # Pass 2: Remove stale .wake-task-* files (tasks are still pending in DB)
+  for f in "$WATCH_DIR"/.wake-task-*; do
+    [ -f "$f" ] || continue
+    echo "[$(date)] Startup recovery: removing stale task wake file $(basename "$f")"
+    rm -f "$f"
+  done
+
+  # Pass 3: Process stale .wake-<trigger>-* files (trigger re-awakening)
   for f in "$WATCH_DIR"/.wake-*; do
     [ -f "$f" ] || continue
-    echo "[$(date)] Startup recovery: stale wake file $(basename "$f")"
+    [[ "$(basename "$f")" == .wake-task-* ]] && continue  # Already handled above
+    echo "[$(date)] Startup recovery: stale trigger wake file $(basename "$f")"
+    # Extract task_id from wake file and clean up task_awaits to prevent
+    # Pass 4 from creating a duplicate wake (race between writeFileSync and DELETE)
+    local WAKE_TASK_ID_CLEANUP
+    WAKE_TASK_ID_CLEANUP=$(jq -r '.task_id // empty' "$f" 2>/dev/null || true)
+    if [ -n "$WAKE_TASK_ID_CLEANUP" ]; then
+      sqlite3 "$DB" "DELETE FROM task_awaits WHERE task_id = $WAKE_TASK_ID_CLEANUP" 2>/dev/null || true
+    fi
     handle_trigger_wake "$f"
   done
 
-  # Pass 2: re-create wake files for done tasks whose wake file was never written
+  # Pass 4: Re-create wake files for done tasks whose wake file was never written
   [ -f "$DB" ] || return 0
   sqlite3 -json "$DB" \
     "SELECT ta.task_id, ta.trigger_name, ta.session_key,
@@ -151,17 +271,23 @@ startup_recovery() {
       task_id=$(printf '%s' "$row" | jq -r '.task_id')
       trigger_name=$(printf '%s' "$row" | jq -r '.trigger_name')
       local WAKE_FILE="$WATCH_DIR/.wake-${trigger_name}-${task_id}"
-      [ -f "$WAKE_FILE" ] && continue  # already handled in Pass 1
+      [ -f "$WAKE_FILE" ] && continue  # already handled
       echo "[$(date)] Startup recovery: recreating wake for task $task_id ($trigger_name)"
       printf '%s' "$row" > "$WAKE_FILE"
       sqlite3 "$DB" "DELETE FROM task_awaits WHERE task_id = $task_id" 2>/dev/null || true
       handle_trigger_wake "$WAKE_FILE"
     done
+
+  # Dispatch any pending tasks left over
+  dispatch_pending_tasks
 }
 
 # Ensure watch directory exists
 mkdir -p "$WATCH_DIR"
 touch "$WATCH_DIR/.wake"
+
+# Disable remote MCP once at startup (shared by all sessions)
+disable_remote_mcp
 
 echo "[$(date)] Watcher started. Monitoring $WATCH_DIR"
 
@@ -169,67 +295,17 @@ startup_recovery
 
 inotifywait -m "$WATCH_DIR" -e create,modify,attrib --exclude '\.(db|wal|shm)$' --format '%f' | while read FILENAME; do
 
-  # --- Main session wake (.wake file) ---
+  # --- Task dispatch signal (.wake or .wake-task-<id> files) ---
   if [ "$FILENAME" = ".wake" ]; then
-    echo "[$(date)] Main session wake event"
+    echo "[$(date)] Dispatch signal received (.wake)"
+    dispatch_pending_tasks
 
-    (
-      exec </dev/null >>/atlas/logs/watcher.log 2>&1
-      flock -n 9 || { echo "[$(date)] Session already running, skipping"; exit 0; }
-
-      touch "$LOCK_FILE"  # web-ui status indicator
-
-      SESSION_ID=$(cat "$SESSION_FILE" 2>/dev/null || echo "")
-
-      disable_remote_mcp
-
-      set +e
-      WORKER_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      WORKER_OUT=$(mktemp /tmp/worker-out-XXXXXX.json)
-
-      if [ -n "$SESSION_ID" ]; then
-        echo "[$(date)] Resuming session: $SESSION_ID"
-        claude-atlas --mode worker --output-format json --resume "$SESSION_ID" \
-          --dangerously-skip-permissions \
-          -p "You have new tasks. Use get_next_task() to process them." \
-          > "$WORKER_OUT" 2>>/atlas/logs/session.log
-      else
-        echo "[$(date)] Starting new session"
-        claude-atlas --mode worker --output-format json \
-          --dangerously-skip-permissions \
-          -p "You have new tasks. Use get_next_task() to process them." \
-          > "$WORKER_OUT" 2>>/atlas/logs/session.log
-      fi
-      CLAUDE_EXIT=$?
-      set -e
-
-      WORKER_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-      # Extract session_id from JSON output (supplements stop.sh which also saves it)
-      NEW_SESSION_ID=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get('session_id', ''))
-except: print('')
-" "$WORKER_OUT" 2>/dev/null || echo "")
-      if [ -n "$NEW_SESSION_ID" ]; then
-        echo "$NEW_SESSION_ID" > "$SESSION_FILE"
-      fi
-
-      save_session_metrics "$WORKER_OUT" "worker" "" "$WORKER_START" "$WORKER_END" "$CLAUDE_EXIT"
-      rm -f "$WORKER_OUT"
-
-      rm -f "$LOCK_FILE"
-
-      if [ "$CLAUDE_EXIT" -eq 0 ]; then
-        on_session_success
-        echo "[$(date)] Session ended, back to sleep"
-      else
-        echo "[$(date)] Session failed with exit $CLAUDE_EXIT, entering backoff"
-        on_session_failure "$CLAUDE_EXIT"
-      fi
-    ) 9>"$FLOCK_FILE" &
+  elif [[ "$FILENAME" == .wake-task-* ]]; then
+    TASK_ID="${FILENAME#.wake-task-}"
+    echo "[$(date)] New task wake: task $TASK_ID"
+    # Remove wake file (task stays pending in DB, dispatch_pending_tasks handles it)
+    rm -f "$WATCH_DIR/$FILENAME"
+    dispatch_pending_tasks
 
   # --- Trigger session re-awakening (.wake-<trigger>-<task_id> file) ---
   elif [[ "$FILENAME" == .wake-* ]]; then

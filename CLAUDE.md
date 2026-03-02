@@ -12,11 +12,13 @@ Containerized autonomous agent system powered by Claude Code. Made to enable com
 ## Overview
 
 ```
-Trigger Event → Inbox (SQLite) → .wake file → watcher → Claude resumes
-                                                  ↓
-                                         Process task → Write memory
-                                                  ↓
-                                        Stop hook → More tasks? Sleep
+Trigger Event → task_create() → .wake-task-<id> → watcher dispatches
+                                                       ↓
+                                          task-runner.sh (per task)
+                                          ├─ Ephemeral Worker → JSON result
+                                          └─ Review Agent → approve/revise loop
+                                                       ↓
+                                          .wake-<trigger>-<id> → Trigger resumes
 ```
 
 ## Tech Stack
@@ -33,6 +35,7 @@ Trigger Event → Inbox (SQLite) → .wake file → watcher → Claude resumes
 
 - [docs/Architecture.md](docs/Architecture.md) — Component overview
 - [docs/inbox-mcp.md](docs/inbox-mcp.md) — Inbox system and MCP tools
+- [docs/task-runner.md](docs/task-runner.md) — Task-runner lifecycle, review loop, path locking
 - [docs/hooks.md](docs/hooks.md) — Lifecycle hooks
 - [docs/watcher.md](docs/watcher.md) — Event-driven wake system
 - [docs/qmd-memory.md](docs/qmd-memory.md) — Memory and search

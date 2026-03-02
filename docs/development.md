@@ -34,7 +34,7 @@ docker compose logs -f
 docker compose logs -f atlas
 
 # Inside container
-docker compose exec atlas tail -f /atlas/logs/session.log
+docker compose exec atlas tail -f /atlas/logs/watcher.log
 docker compose exec atlas tail -f /atlas/logs/init.log
 docker compose exec atlas tail -f /atlas/logs/qmd.log
 ```
@@ -85,6 +85,8 @@ curl -X POST http://localhost:8080/api/webhook/test-trigger \
 | `ATLAS_TRIGGER` | Set when running as trigger session |
 | `ATLAS_TRIGGER_CHANNEL` | Channel for trigger context |
 | `ATLAS_TRIGGER_SESSION_KEY` | Session key for persistent triggers |
+| `ATLAS_WORKER_EPHEMERAL` | Set to `1` for ephemeral worker sessions |
+| `ATLAS_REVIEWER` | Set to `1` for reviewer sessions |
 | `CLAUDE_SESSION_ID` | Current session ID (set by Claude Code) |
 
 ## File Locations in Container

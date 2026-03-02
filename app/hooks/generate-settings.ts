@@ -110,8 +110,6 @@ const settings: Record<string, unknown> = {
     allow: [
       "Bash(*)",
       "Read",
-      "Write",
-      "Edit",
       "Glob",
       "Grep",
       "WebFetch",
@@ -170,5 +168,21 @@ const settings: Record<string, unknown> = {
 
 mkdirSync(HOME + "/.claude", { recursive: true });
 writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
+
+// Generate trigger MCP config: base .mcp.json + inbox + memory
+const MCP_BASE_PATH = "/atlas/app/.mcp.json";
+const MCP_TRIGGER_PATH = HOME + "/.mcp-trigger.json";
+try {
+  const baseMcp = JSON.parse(readFileSync(MCP_BASE_PATH, "utf-8"));
+  baseMcp.mcpServers.inbox = {
+    command: "bun",
+    args: ["run", "/atlas/app/inbox-mcp/index.ts"],
+  };
+  baseMcp.mcpServers.memory = { url: "http://localhost:8181/mcp" };
+  writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
+  console.log("Trigger MCP config generated: " + MCP_TRIGGER_PATH);
+} catch (e) {
+  console.log("Warning: could not generate trigger MCP config:", e);
+}
 
 console.log(`Settings generated: main=${models.main}, subagent_review=${models.subagent_review}, hooks=${models.hooks}`);
