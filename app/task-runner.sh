@@ -236,12 +236,10 @@ Note: This is a code task. In addition to checking completeness against the acce
     set +e
     if [ -n "$REVIEWER_SESSION_ID" ]; then
       (cd "$WORK_DIR" && claude-atlas --mode reviewer --output-format json \
-        --dangerously-skip-permissions \
         --resume "$REVIEWER_SESSION_ID" \
         -p "$REVIEWER_PROMPT" > "$REVIEW_OUT" 2>>"$LOG")
     else
       (cd "$WORK_DIR" && claude-atlas --mode reviewer --output-format json \
-        --dangerously-skip-permissions \
         -p "$REVIEWER_PROMPT" > "$REVIEW_OUT" 2>>"$LOG")
     fi
     REVIEW_EXIT=$?

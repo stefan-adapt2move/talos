@@ -44,8 +44,8 @@ task-runner.sh <task_id>
 
 The ephemeral worker receives the task description as a direct prompt (`-p` argument) and runs with:
 - **Mode**: `--mode worker-ephemeral`
-- **MCP**: Only Playwright (`app/.mcp-worker.json`)
-- **No inbox MCP**, no memory MCP
+- **MCP**: Base config only (Playwright) — auto-discovered from `$HOME/.mcp.json`
+- **No inbox MCP**, no memory MCP (those are only in the trigger MCP config)
 - **Working directory**: Task's `path` (if set) or `$HOME`
 
 The worker's final message should contain a JSON result block:
@@ -66,7 +66,8 @@ When `review=true` for a task, the task-runner spawns a review agent after the w
 ### Reviewer Session
 
 - **Mode**: `--mode reviewer`
-- **MCP**: Playwright (`app/.mcp-reviewer.json`) — for visual verification of results
+- **MCP**: Base config only (Playwright) — auto-discovered from `$HOME/.mcp.json`
+- **Permissions**: Write/Edit not auto-approved (soft read-only via settings permissions)
 - **Input**: Original task description + worker's result
 - **For tasks with `path`**: Also reviews changed files for quality, security, performance
 
@@ -174,7 +175,6 @@ workers:
 | `app/inbox-mcp/wake-trigger.ts` | CLI: wake trigger session |
 | `app/prompts/worker-ephemeral-prompt.md` | Ephemeral worker prompt |
 | `app/prompts/reviewer-system-prompt.md` | Review agent prompt |
-| `app/.mcp-worker.json` | Worker MCP config (Playwright only) |
-| `app/.mcp-reviewer.json` | Reviewer MCP config (Playwright only) |
+| `app/.mcp.json` | Base MCP config (Playwright) — shared by all modes |
 | `/tmp/task-runner-<id>.pid` | PID file for crash recovery |
 | `/atlas/logs/task-runner-<id>.log` | Per-task log |

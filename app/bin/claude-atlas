@@ -137,11 +137,11 @@ $(cat "$APP_DIR/prompts/trigger-channel-${CHANNEL}.md")"
 fi
 
 # Select MCP config based on mode
+# Base config ($HOME/.mcp.json) is auto-discovered by all modes (playwright only).
+# Triggers additionally get inbox + memory via the generated trigger config.
 MCP_CONFIG=""
-if [ "$MODE" = "worker-ephemeral" ] && [ -f "$APP_DIR/.mcp-worker.json" ]; then
-    MCP_CONFIG="$APP_DIR/.mcp-worker.json"
-elif [ "$MODE" = "reviewer" ] && [ -f "$APP_DIR/.mcp-reviewer.json" ]; then
-    MCP_CONFIG="$APP_DIR/.mcp-reviewer.json"
+if [ "$MODE" = "trigger" ] && [ -f "$HOME/.mcp-trigger.json" ]; then
+    MCP_CONFIG="$HOME/.mcp-trigger.json"
 fi
 
 # Build final claude arguments
