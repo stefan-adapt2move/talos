@@ -174,22 +174,11 @@ elif [ "$MODE" = "worker" ] || [ "$MODE" = "worker-ephemeral" ] || [ "$MODE" = "
   MCP_CONFIGS+=("$ATLAS_MCP_DIR/user.json")
 fi
 
-# Build final claude arguments
-FINAL_ARGS=()
-if [ -n "$SYSTEM_PROMPT" ]; then
-    FINAL_ARGS+=(--append-system-prompt "$SYSTEM_PROMPT")
-fi
-if [ ${#MCP_CONFIGS[@]} -gt 0 ]; then
-  FINAL_ARGS+=(--mcp-config "${MCP_CONFIGS[@]}" --strict-mcp-config)
-fi
-# Inject --model from config if not already provided
-if [ "$HAS_MODEL_FLAG" = false ]; then
-    FINAL_ARGS+=(--model "$MODEL")
-fi
-# Separate flags from positional args in CLAUDE_ARGS.
-# --mcp-config is variadic (<configs...>) and greedily consumes all
-# subsequent positional arguments (including the prompt) without --.
-# We insert -- before the first positional (non-flag) argument.
+# Build final claude arguments.
+# --mcp-config is variadic (<configs...>) and greedily consumes all subsequent
+# arguments. It MUST be placed last, right before -- and the positional prompt.
+#
+# Separate CLAUDE_ARGS into flags (options) and positional args (the prompt).
 CLAUDE_FLAGS=()
 CLAUDE_POSITIONAL=()
 SKIP_NEXT=false
@@ -213,11 +202,24 @@ for i in "${!CLAUDE_ARGS[@]}"; do
     esac
 done
 
-FINAL_ARGS+=("${CLAUDE_FLAGS[@]}")
-if [ ${#CLAUDE_POSITIONAL[@]} -gt 0 ]; then
-    FINAL_ARGS+=(--)
-    FINAL_ARGS+=("${CLAUDE_POSITIONAL[@]}")
+FINAL_ARGS=()
+if [ -n "$SYSTEM_PROMPT" ]; then
+    FINAL_ARGS+=(--append-system-prompt "$SYSTEM_PROMPT")
 fi
+# Inject --model from config if not already provided
+if [ "$HAS_MODEL_FLAG" = false ]; then
+    FINAL_ARGS+=(--model "$MODEL")
+fi
+if [ ${#MCP_CONFIGS[@]} -gt 0 ]; then
+    FINAL_ARGS+=(--strict-mcp-config)
+fi
+FINAL_ARGS+=("${CLAUDE_FLAGS[@]}")
+# --mcp-config must be last flag before -- to prevent it eating other args
+if [ ${#MCP_CONFIGS[@]} -gt 0 ]; then
+    FINAL_ARGS+=(--mcp-config "${MCP_CONFIGS[@]}")
+fi
+FINAL_ARGS+=(--)
+FINAL_ARGS+=("${CLAUDE_POSITIONAL[@]}")
 
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 exec claude "${FINAL_ARGS[@]}"
