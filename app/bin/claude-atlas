@@ -181,13 +181,14 @@ if [ ${#MCP_SOURCES[@]} -gt 0 ]; then
   MCP_MERGED="$ATLAS_MCP_DIR/.merged-${MODE}.json"
   python3 -c "
 import json, sys
+out_path = sys.argv[1]
 merged = {'mcpServers': {}}
-for f in sys.argv[1:]:
+for f in sys.argv[2:]:
     try:
         data = json.load(open(f))
         merged['mcpServers'].update(data.get('mcpServers', {}))
     except: pass
-json.dump(merged, open(sys.argv[0], 'w'), indent=2)
+json.dump(merged, open(out_path, 'w'), indent=2)
 " "$MCP_MERGED" "${MCP_SOURCES[@]}"
 fi
 
