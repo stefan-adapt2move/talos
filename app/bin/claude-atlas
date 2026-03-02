@@ -171,10 +171,7 @@ fi
 # so we MUST pass exactly one merged config file.
 MCP_SOURCES=()
 if [ "$MODE" = "trigger" ]; then
-  # Triggers get system (inbox+memory) + atlas (user-installed).
-  # user.json (playwright etc.) excluded: url-based MCP servers cause
-  # Claude Code to silently exit with --strict-mcp-config.
-  MCP_SOURCES+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json")
+  MCP_SOURCES+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json" "$ATLAS_MCP_DIR/user.json")
 elif [ "$MODE" = "worker" ] || [ "$MODE" = "worker-ephemeral" ] || [ "$MODE" = "reviewer" ]; then
   MCP_SOURCES+=("$ATLAS_MCP_DIR/user.json")
 fi
@@ -231,11 +228,10 @@ fi
 if [ "$HAS_MODEL_FLAG" = false ]; then
     FINAL_ARGS+=(--model "$MODEL")
 fi
-if [ -n "$MCP_MERGED" ]; then
-    FINAL_ARGS+=(--strict-mcp-config)
-fi
 FINAL_ARGS+=("${CLAUDE_FLAGS[@]}")
-# --mcp-config with a single merged file, right before -- and the prompt
+# --mcp-config with a single merged file, right before -- and the prompt.
+# NOT using --strict-mcp-config: url-based MCP servers (playwright, etc.)
+# cause Claude Code to silently exit in strict mode.
 if [ -n "$MCP_MERGED" ]; then
     FINAL_ARGS+=(--mcp-config "$MCP_MERGED")
 fi
