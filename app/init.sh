@@ -181,13 +181,6 @@ for f in "$HOME/agents/"*.md; do
 done
 echo "  Agents discovery dir rebuilt: $HOME/.claude/agents/"
 
-# Disable remote MCP connectors (claudeai-mcp) that cause session hangs.
-if [ -f "$HOME/.claude.json" ] && command -v jq &>/dev/null; then
-  jq '.cachedGrowthBookFeatures.tengu_claudeai_mcp_connectors = false' \
-    "$HOME/.claude.json" > "$HOME/.claude.json.tmp" && mv "$HOME/.claude.json.tmp" "$HOME/.claude.json"
-  echo "  Remote MCP connectors disabled in .claude.json"
-fi
-
 # ── Phase 9: Sync Crontab from Triggers ──
 echo "[$(date)] Phase 9: Crontab sync"
 bun run /atlas/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (non-fatal)"
