@@ -171,7 +171,10 @@ fi
 # so we MUST pass exactly one merged config file.
 MCP_SOURCES=()
 if [ "$MODE" = "trigger" ]; then
-  MCP_SOURCES+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json" "$ATLAS_MCP_DIR/user.json")
+  # Triggers get system (inbox+memory) + atlas (user-installed).
+  # user.json (playwright etc.) excluded: url-based MCP servers cause
+  # Claude Code to silently exit with --strict-mcp-config.
+  MCP_SOURCES+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json")
 elif [ "$MODE" = "worker" ] || [ "$MODE" = "worker-ephemeral" ] || [ "$MODE" = "reviewer" ]; then
   MCP_SOURCES+=("$ATLAS_MCP_DIR/user.json")
 fi
