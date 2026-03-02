@@ -18,6 +18,9 @@ bun.lockb
 .session-running
 .cleanup-done
 
+# Python
+__pycache__/
+
 # OS
 .DS_Store
 Thumbs.db
