@@ -178,7 +178,7 @@ try {
     command: "bun",
     args: ["run", "/atlas/app/inbox-mcp/index.ts"],
   };
-  baseMcp.mcpServers.memory = { type: "sse", url: "http://localhost:8181/mcp" };
+  baseMcp.mcpServers.memory = { command: "qmd", args: ["mcp"] };
   writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
   console.log("Trigger MCP config generated: " + MCP_TRIGGER_PATH);
 } catch (e) {

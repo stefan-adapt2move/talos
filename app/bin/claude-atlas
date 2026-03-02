@@ -142,7 +142,8 @@ if [ ! -f "$ATLAS_MCP_DIR/system.json" ]; then
       "args": ["run", "/atlas/app/inbox-mcp/index.ts"]
     },
     "memory": {
-      "url": "http://localhost:8181/mcp"
+      "command": "qmd",
+      "args": ["mcp"]
     }
   }
 }
@@ -185,7 +186,38 @@ fi
 if [ "$HAS_MODEL_FLAG" = false ]; then
     FINAL_ARGS+=(--model "$MODEL")
 fi
-FINAL_ARGS+=("${CLAUDE_ARGS[@]}")
+# Separate flags from positional args in CLAUDE_ARGS.
+# --mcp-config is variadic (<configs...>) and greedily consumes all
+# subsequent positional arguments (including the prompt) without --.
+# We insert -- before the first positional (non-flag) argument.
+CLAUDE_FLAGS=()
+CLAUDE_POSITIONAL=()
+SKIP_NEXT=false
+for i in "${!CLAUDE_ARGS[@]}"; do
+    if $SKIP_NEXT; then
+        CLAUDE_FLAGS+=("${CLAUDE_ARGS[$i]}")
+        SKIP_NEXT=false
+        continue
+    fi
+    case "${CLAUDE_ARGS[$i]}" in
+        --output-format|--model|--resume)
+            CLAUDE_FLAGS+=("${CLAUDE_ARGS[$i]}")
+            SKIP_NEXT=true
+            ;;
+        -*)
+            CLAUDE_FLAGS+=("${CLAUDE_ARGS[$i]}")
+            ;;
+        *)
+            CLAUDE_POSITIONAL+=("${CLAUDE_ARGS[$i]}")
+            ;;
+    esac
+done
+
+FINAL_ARGS+=("${CLAUDE_FLAGS[@]}")
+if [ ${#CLAUDE_POSITIONAL[@]} -gt 0 ]; then
+    FINAL_ARGS+=(--)
+    FINAL_ARGS+=("${CLAUDE_POSITIONAL[@]}")
+fi
 
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 exec claude "${FINAL_ARGS[@]}"
