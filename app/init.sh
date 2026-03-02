@@ -91,16 +91,6 @@ for f in "$WORKSPACE/memory/"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
   echo "  Migrated journal: $(basename $f)"
 done
 
-# Migrate inbox/ → .index/
-if [ -d "$WORKSPACE/inbox" ] && [ ! -d "$WORKSPACE/.index" ]; then
-  mv "$WORKSPACE/inbox" "$WORKSPACE/.index"
-  echo "  Migrated inbox/ → .index/"
-elif [ -d "$WORKSPACE/inbox" ] && [ -d "$WORKSPACE/.index" ]; then
-  # Merge: copy anything not already in .index
-  cp -rn "$WORKSPACE/inbox/." "$WORKSPACE/.index/" 2>/dev/null || true
-  rm -rf "$WORKSPACE/inbox"
-  echo "  Merged inbox/ → .index/ (both existed)"
-fi
 
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
