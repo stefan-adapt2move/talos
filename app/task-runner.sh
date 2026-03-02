@@ -35,7 +35,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Read max_review_iterations from config
+# Read worker config from config.yml
 read_config() {
   local CONFIG=""
   if [ -f "$HOME/config.yml" ]; then
@@ -44,11 +44,17 @@ read_config() {
     CONFIG="$APP_DIR/defaults/config.yml"
   fi
   MAX_REVIEW_ITERATIONS=5
+  MAX_TASK_RETRIES=3
   if [ -n "$CONFIG" ]; then
     local PARSED
-    PARSED=$(python3 -c "import yaml, sys; print(yaml.safe_load(open(sys.argv[1])).get('workers',{}).get('max_review_iterations', 5))" "$CONFIG" 2>/dev/null) || true
+    PARSED=$(python3 -c "
+import yaml, sys
+w = yaml.safe_load(open(sys.argv[1])).get('workers', {})
+print(w.get('max_review_iterations', 5), w.get('max_task_retries', 3))
+" "$CONFIG" 2>/dev/null) || true
     if [ -n "$PARSED" ]; then
-      MAX_REVIEW_ITERATIONS="$PARSED"
+      MAX_REVIEW_ITERATIONS=$(echo "$PARSED" | cut -d' ' -f1)
+      MAX_TASK_RETRIES=$(echo "$PARSED" | cut -d' ' -f2)
     fi
   fi
 }
@@ -115,6 +121,45 @@ mark_failed() {
   printf '%s' "$ERROR_MSG" | task_update_stdin "failed"
   # Wake trigger with error
   bun run "$TASK_HELPERS/wake-trigger.ts" "$TASK_ID" "Task failed: $ERROR_MSG" 2>/dev/null || true
+  rm -f "$RETRY_FILE"
+}
+
+RETRY_FILE="/tmp/task-retry-${TASK_ID}.count"
+
+# Schedule a retry with exponential backoff. Returns 0 if retry was scheduled, 1 if max retries exceeded.
+schedule_retry() {
+  local EXIT_CODE="$1"
+  local RETRY_COUNT
+  RETRY_COUNT=$(cat "$RETRY_FILE" 2>/dev/null || echo "0")
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+
+  if [ "$RETRY_COUNT" -gt "$MAX_TASK_RETRIES" ]; then
+    return 1  # Max retries exceeded
+  fi
+
+  printf '%s' "$RETRY_COUNT" > "$RETRY_FILE"
+
+  # Exponential backoff: 30s, 60s, 120s (30 * 2^(n-1)), capped at 900s
+  local BACKOFF=30
+  local i=1
+  while [ "$i" -lt "$RETRY_COUNT" ]; do
+    BACKOFF=$((BACKOFF * 2))
+    [ "$BACKOFF" -gt 900 ] && BACKOFF=900 && break
+    i=$((i + 1))
+  done
+
+  log "Transient failure (exit=$EXIT_CODE), scheduling retry $RETRY_COUNT/$MAX_TASK_RETRIES in ${BACKOFF}s"
+
+  # Task stays as 'processing' to prevent immediate re-dispatch.
+  # Background process resets to 'pending' after backoff.
+  (
+    sleep "$BACKOFF"
+    bun run "$TASK_HELPERS/update-task.ts" "$TASK_ID" "pending" 2>/dev/null || true
+    touch "$WORKSPACE/.index/.wake"
+    echo "[$(date)] [task:$TASK_ID] Retry $RETRY_COUNT triggered after ${BACKOFF}s backoff" >> "$LOG"
+  ) &
+
+  return 0
 }
 
 # Extract fields from Claude's JSON output using jq
@@ -189,7 +234,10 @@ save_session_metrics "$WORKER_OUT" "worker" "$TRIGGER_NAME" "$WORKER_START" "$WO
 
 if [ "$WORKER_EXIT" -ne 0 ] && [ -z "$WORKER_RESULT" ]; then
   log "Worker session failed with exit $WORKER_EXIT"
-  mark_failed "Worker session crashed (exit code $WORKER_EXIT)"
+  if schedule_retry "$WORKER_EXIT"; then
+    exit 0  # Cleanup releases lock; background process will re-queue
+  fi
+  mark_failed "Worker failed after $MAX_TASK_RETRIES retries (exit code $WORKER_EXIT)"
   exit 1
 fi
 
@@ -356,7 +404,10 @@ Please fix the identified issues and provide an updated result."
 
     if [ "$WORKER_EXIT" -ne 0 ] && [ -z "$WORKER_RESULT" ]; then
       log "Worker crashed during revision (exit=$WORKER_EXIT)"
-      mark_failed "Worker crashed during revision iteration $REVIEW_ITERATION"
+      if schedule_retry "$WORKER_EXIT"; then
+        exit 0
+      fi
+      mark_failed "Worker failed during revision after $MAX_TASK_RETRIES retries (exit code $WORKER_EXIT)"
       exit 1
     fi
   done
@@ -364,6 +415,7 @@ fi
 
 # 7. Task complete — mark as done (safe, via stdin)
 printf '%s' "$WORKER_RESULT" | task_update_stdin "done"
+rm -f "$RETRY_FILE"
 
 log "Task completed successfully"
 

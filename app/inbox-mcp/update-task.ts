@@ -32,6 +32,12 @@ function readStdin(): string {
 }
 
 switch (command) {
+  case "pending":
+    db.prepare(
+      "UPDATE tasks SET status='pending', processed_at=NULL WHERE id=?"
+    ).run(id);
+    break;
+
   case "processing":
     db.prepare(
       "UPDATE tasks SET status='processing', processed_at=datetime('now') WHERE id=?"

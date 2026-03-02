@@ -132,8 +132,10 @@ On watcher startup:
 
 ```
 pending → processing → reviewing → done
-                 │           │
-                 └───────────┴──→ failed
+              │  ↑          │
+              │  └──────────┤ (retry on transient failure)
+              │             │
+              └─────────────┴──→ failed (after max retries)
                                     │
 pending ← (crash recovery) ─────────┘
 ```
@@ -141,15 +143,16 @@ pending ← (crash recovery) ─────────┘
 | State | Meaning |
 |-------|---------|
 | pending | Waiting to be dispatched |
-| processing | Worker is executing |
+| processing | Worker is executing (or waiting for retry backoff) |
 | reviewing | Review agent is checking |
 | done | Completed successfully |
-| failed | Worker or reviewer crashed |
+| failed | Worker or reviewer crashed after max retries |
 | cancelled | Cancelled by trigger |
 
 ## Error Handling
 
-- **Worker crash**: Task marked `failed`, lock released, trigger woken with error
+- **Transient worker failure** (rate limit, API timeout): Retried with exponential backoff (30s, 60s, 120s) up to `max_task_retries` (default: 3). Task stays `processing` during backoff, then resets to `pending` for re-dispatch.
+- **Permanent worker failure** (max retries exceeded): Task marked `failed`, lock released, trigger woken with error
 - **Reviewer crash**: Worker result accepted as-is (graceful degradation)
 - **Task-runner crash**: Watcher startup recovery cleans up stale locks and resets tasks
 
@@ -161,6 +164,7 @@ In `config.yml`:
 workers:
   max_parallel: 3          # Maximum concurrent task-runners
   max_review_iterations: 5  # Max worker↔reviewer rounds per task
+  max_task_retries: 3      # Max retries on transient failures
 ```
 
 ## Files
