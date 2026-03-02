@@ -186,7 +186,12 @@ merged = {'mcpServers': {}}
 for f in sys.argv[2:]:
     try:
         data = json.load(open(f))
-        merged['mcpServers'].update(data.get('mcpServers', {}))
+        for name, cfg in data.get('mcpServers', {}).items():
+            # Skip url-based (remote) servers: they cause Claude Code to
+            # silently exit when passed via --mcp-config
+            if 'url' in cfg:
+                continue
+            merged['mcpServers'][name] = cfg
     except: pass
 json.dump(merged, open(out_path, 'w'), indent=2)
 " "$MCP_MERGED" "${MCP_SOURCES[@]}"
