@@ -94,6 +94,7 @@ function layout(
     ["/tasks", "Tasks", "tasks"],
     ["/triggers", "Triggers", "triggers"],
     ["/analytics", "Analytics", "analytics"],
+    ["/sessions", "Sessions", "sessions"],
     ["/memory", "Memory", "memory"],
     ["/journal", "Journal", "journal"],
     ["/chat", "Chat", "chat"],
@@ -1385,6 +1386,178 @@ app.get("/analytics", (c) => {
     </div>`;
 
   return c.html(layout("Analytics", html, "analytics"));
+});
+
+// ============ SESSIONS ============
+
+function sessionTypeBadge(t: string): string {
+  const colors: Record<string, string> = {
+    trigger: "#5c9cf5",
+    worker: "#ff9800",
+    reviewer: "#e040fb",
+  };
+  const color = colors[t] || "#999";
+  return `<span class="badge" style="background:${color};color:#fff">${safe(t)}</span>`;
+}
+
+function fmtSessionDuration(ms: number | null | undefined): string {
+  if (!ms) return "";
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+function fmtSessionCost(v: number | null | undefined): string {
+  if (!v || v === 0) return "";
+  return `$${v.toFixed(4)}`;
+}
+
+app.get("/sessions", (c) => {
+  const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
+  const typeFilter = c.req.query("type") || "";
+  const triggerFilter = c.req.query("trigger") || "";
+  const limit = 50;
+  const offset = (page - 1) * limit;
+
+  const whereParts: string[] = [];
+  const whereParams: any[] = [];
+  if (typeFilter) {
+    whereParts.push("session_type = ?");
+    whereParams.push(typeFilter);
+  }
+  if (triggerFilter) {
+    whereParts.push("trigger_name LIKE ?");
+    whereParams.push(`%${triggerFilter}%`);
+  }
+  const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
+  let rows: any[] = [];
+  let total = 0;
+  try {
+    total = (db.prepare(`SELECT COUNT(*) as c FROM session_metrics ${where}`).get(...whereParams) as any)?.c || 0;
+    rows = db.prepare(
+      `SELECT * FROM session_metrics ${where} ORDER BY started_at DESC LIMIT ? OFFSET ?`
+    ).all(...whereParams, limit, offset) as any[];
+  } catch {}
+
+  const totalPages = Math.ceil(total / limit);
+  const qs = [typeFilter ? `type=${encodeURIComponent(typeFilter)}` : "", triggerFilter ? `trigger=${encodeURIComponent(triggerFilter)}` : ""].filter(Boolean).join("&");
+
+  const paginationHtml = totalPages > 1
+    ? `<div class="flex mt-8" style="justify-content:space-between">
+    <span class="text-muted">Page ${page} of ${totalPages} (${total} sessions)</span>
+    <span>${page > 1 ? `<a href="/sessions?page=${page - 1}${qs ? "&" + qs : ""}" class="btn btn-sm btn-outline">Prev</a> ` : ""}${page < totalPages ? `<a href="/sessions?page=${page + 1}${qs ? "&" + qs : ""}" class="btn btn-sm btn-outline">Next</a>` : ""}</span>
+  </div>` : "";
+
+  const typeOptions = ["", "trigger", "worker", "reviewer"];
+  const typeSelect = `<select name="type" onchange="this.form.submit()" style="width:auto;padding:4px 8px;font-size:12px">
+    ${typeOptions.map(t => `<option value="${t}"${typeFilter === t ? " selected" : ""}>${t || "All types"}</option>`).join("")}
+  </select>`;
+
+  const filterForm = `
+    <form method="GET" style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+      ${typeSelect}
+      <input name="trigger" placeholder="filter trigger..." onchange="this.form.submit()" value="${safe(triggerFilter)}"
+        style="width:auto;padding:4px 8px;font-size:12px">
+      ${(typeFilter || triggerFilter) ? `<a href="/sessions" class="btn btn-sm btn-outline">Clear</a>` : ""}
+    </form>`;
+
+  const tableRows = rows.map((row) => {
+    const isActive = existsSync(`/tmp/claudec-${row.session_id}.sock`);
+    const statusHtml = isActive
+      ? `<span style="color:#4caf50">&#9679; active</span>`
+      : row.is_error
+        ? `<span style="color:#f44336">&#10007; error</span>`
+        : `<span style="color:#999">&#10003; done</span>`;
+
+    return `
+      <tr class="msg-row" hx-get="/sessions/${safe(row.session_id)}" hx-target="#sd-${safe(row.session_id)}" hx-swap="innerHTML">
+        <td>${sessionTypeBadge(row.session_type || "")}</td>
+        <td>${row.trigger_name ? safe(row.trigger_name) : '<span class="text-muted">—</span>'}</td>
+        <td>${row.num_turns != null ? row.num_turns : ""}</td>
+        <td>${fmtSessionCost(row.cost_usd)}</td>
+        <td>${fmtSessionDuration(row.duration_ms)}</td>
+        <td>${statusHtml}</td>
+        <td class="text-muted">${timeAgo(row.started_at)}</td>
+      </tr>
+      <tr id="sd-${safe(row.session_id)}"></tr>`;
+  }).join("");
+
+  const html = `
+    <h1>Sessions</h1>
+    ${filterForm}
+    <table>
+      <thead><tr>
+        <th>Type</th><th>Trigger</th><th>Turns</th><th>Cost</th><th>Duration</th><th>Status</th><th>Started</th>
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    ${rows.length === 0 ? '<div class="card text-muted">No sessions found.</div>' : ""}
+    ${paginationHtml}`;
+
+  return c.html(layout("Sessions", html, "sessions"));
+});
+
+app.get("/sessions/:sessionId", (c) => {
+  const sessionId = c.req.param("sessionId");
+
+  let row: any = null;
+  try {
+    row = db.prepare("SELECT * FROM session_metrics WHERE session_id = ?").get(sessionId) as any;
+  } catch {}
+
+  const isActive = existsSync(`/tmp/claudec-${sessionId}.sock`);
+  const filePath = findSessionFile(sessionId);
+
+  let messagesHtml = "";
+  if (!filePath) {
+    messagesHtml = '<div class="text-muted">Session transcript not available.</div>';
+  } else {
+    let msgs = parseSessionMessages(filePath);
+    let truncatedNote = "";
+    if (msgs.length > 200) {
+      const totalMsgs = msgs.length;
+      msgs = msgs.slice(msgs.length - 200);
+      truncatedNote = `<div class="text-muted" style="margin-bottom:8px;font-size:12px">Showing last 200 of ${totalMsgs} messages.</div>`;
+    }
+
+    const parts: string[] = [];
+    for (const msg of msgs) {
+      if (msg.type === "assistant-text") {
+        parts.push(`<pre style="white-space:pre-wrap;background:#2a2b3d;padding:10px;border-radius:6px;font-size:12px">${safe(msg.content)}</pre>`);
+      } else if (msg.type === "assistant-tool-use") {
+        parts.push(`<details><summary style="cursor:pointer;color:#7c6ef0">&#128295; ${safe(msg.toolName || "tool")}</summary><pre style="font-size:11px;white-space:pre-wrap">${safe((msg.toolInput || "").slice(0, 2000))}</pre></details>`);
+      } else if (msg.type === "user-tool-result") {
+        parts.push(`<details><summary style="cursor:pointer;color:#888">&#8617; tool result</summary><pre style="font-size:11px;white-space:pre-wrap">${safe(msg.content.slice(0, 500))}</pre></details>`);
+      } else if (msg.type === "user-text") {
+        if (msg.content.length > 500) continue;
+        parts.push(`<div style="text-align:right"><span style="background:#3a3b55;padding:6px 10px;border-radius:6px;font-size:12px;display:inline-block;max-width:80%;text-align:left">${safe(msg.content.slice(0, 300))}</span></div>`);
+      } else if (msg.type === "assistant-thinking") {
+        parts.push(`<details><summary style="cursor:pointer;color:#888">&#128161; thinking</summary><pre style="font-size:11px;white-space:pre-wrap">${safe(msg.content.slice(0, 1000))}</pre></details>`);
+      }
+    }
+    messagesHtml = truncatedNote + parts.join("\n");
+  }
+
+  const metaHtml = row ? `
+    <div style="margin-bottom:10px;font-size:12px;color:#999">
+      <strong style="color:#e0e0e0">${safe(row.session_type || "")}</strong>
+      ${row.trigger_name ? ` &middot; ${safe(row.trigger_name)}` : ""}
+      ${row.num_turns != null ? ` &middot; ${row.num_turns} turns` : ""}
+      ${row.cost_usd ? ` &middot; ${fmtSessionCost(row.cost_usd)}` : ""}
+      ${row.duration_ms ? ` &middot; ${fmtSessionDuration(row.duration_ms)}` : ""}
+      ${row.started_at ? ` &middot; started ${timeAgo(row.started_at)}` : ""}
+    </div>` : "";
+
+  const activeHtml = isActive
+    ? `<div style="color:#4caf50;margin-bottom:8px;font-size:13px">&#9679; Session currently active</div>`
+    : "";
+
+  return c.html(`<td colspan="7"><div class="msg-detail">
+    ${activeHtml}${metaHtml}
+    <div style="display:flex;flex-direction:column;gap:6px">${messagesHtml}</div>
+  </div></td>`);
 });
 
 // --- Start ---
