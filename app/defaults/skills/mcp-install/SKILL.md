@@ -48,9 +48,28 @@ Edit `~/.atlas-mcp/atlas.json` (Atlas-managed):
 }
 ```
 
+## Pre-running Services (use URL transport)
+
+Several MCP servers are already running in the container via supervisord — reference them by URL instead of spawning new processes:
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| QMD (memory) | `http://localhost:8181/mcp` | Already in `system.json` |
+| Playwright | `http://localhost:8931/sse` | Already in `user.json` |
+
+```json
+{ "url": "http://localhost:8181/mcp" }
+```
+
 ## MCP Transport Types
 
-**stdio (recommended)** — spawns a subprocess, communicates via stdin/stdout:
+**SSE/HTTP** — connects to an already-running HTTP server (preferred for daemons):
+```json
+{ "url": "http://localhost:PORT/sse" }
+```
+Use `/sse` or `/mcp` depending on what the server supports (`/mcp` for QMD, `/sse` for Playwright).
+
+**stdio** — spawns a fresh subprocess per session (use when no daemon is running):
 ```json
 {
   "command": "node",
@@ -58,25 +77,38 @@ Edit `~/.atlas-mcp/atlas.json` (Atlas-managed):
 }
 ```
 
-**SSE (HTTP)** — connects to a running HTTP server:
-```json
-{
-  "url": "http://localhost:PORT/sse"
-}
+## Running a New MCP Server as a Daemon (supervisord)
+
+For MCP servers that need to persist across sessions, register them with supervisord:
+
+Create `/etc/supervisor/conf.d/my-mcp.conf`:
+```ini
+[program:my-mcp]
+command=node /path/to/mcp-server.js --port 9000
+autostart=true
+autorestart=true
+stdout_logfile=/atlas/logs/my-mcp.log
+stderr_logfile=/atlas/logs/my-mcp.log
 ```
 
-Prefer stdio — SSE servers depend on a running HTTP process and may have startup issues.
-
-## Making an SSE Server Persistent
-
-If the MCP requires an HTTP server, add it to `user-extensions.sh` so it starts with the container:
-
+Then reload supervisord:
 ```bash
-# Start MCP server as background daemon
-nohup node /path/to/mcp-server.js --port 9000 > /atlas/logs/my-mcp.log 2>&1 &
+supervisorctl reread && supervisorctl update
+supervisorctl start my-mcp
 ```
 
-Or register it in supervisord for proper process management.
+To make it survive container restarts, add the config to `user-extensions.sh`:
+```bash
+cat > /etc/supervisor/conf.d/my-mcp.conf << 'EOF'
+[program:my-mcp]
+command=node /path/to/mcp-server.js --port 9000
+autostart=true
+autorestart=true
+stdout_logfile=/atlas/logs/my-mcp.log
+stderr_logfile=/atlas/logs/my-mcp.log
+EOF
+supervisorctl reread && supervisorctl update
+```
 
 ## Persisting across container restarts
 
