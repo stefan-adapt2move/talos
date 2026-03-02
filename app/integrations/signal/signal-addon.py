@@ -358,8 +358,6 @@ def cmd_new_session(config, sender, inbox_msg_id, name="", timestamp=""):
         "sender_name": name,
         "message": "/new",
         "timestamp": ts,
-        "new_session": True,
-        "previous_session_notified": farewell_sent,
     })
 
     try:
