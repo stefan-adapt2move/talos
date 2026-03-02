@@ -10,4 +10,4 @@ Trigger "{{trigger_name}}" (channel: {{channel}}). Context was compacted.
 
 **Constraints**: No code/config changes. Memory files OK.
 
-Check `memory/` and `qmd_search` to recover context lost in compaction.
+Check `memory/` and `memory_search` to recover context lost in compaction.
