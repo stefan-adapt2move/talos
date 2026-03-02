@@ -192,6 +192,17 @@ Relay this result to the original sender now."
       ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
         claude-atlas --mode trigger --output-format json --resume "$SESSION_ID" \
         --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || RELAY_EXIT=$?
+
+      # If resume failed, retry as fresh session (corrupted/stale session)
+      if [ "$RELAY_EXIT" -ne 0 ]; then
+        echo "[$(date)] Resume failed (exit=$RELAY_EXIT) for $TRIGGER_NAME session $SESSION_ID — retrying fresh" | tee -a "$LOG"
+        sqlite3 "$DB" "DELETE FROM trigger_sessions WHERE trigger_name='$(printf '%s' "$TRIGGER_NAME" | sed "s/'/''/g")' AND session_key='$(printf '%s' "$SESSION_KEY" | sed "s/'/''/g")';" 2>/dev/null || true
+        RELAY_EXIT=0
+        ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
+          claude-atlas --mode trigger --output-format json \
+          --dangerously-skip-permissions -p "$RESUME_MSG" > "$RELAY_OUT" 2>>"$LOG" || RELAY_EXIT=$?
+      fi
+
       RELAY_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       python3 -c "
 import json,sys
