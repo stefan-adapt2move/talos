@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import socket as _socket_mod
 import sqlite3
 import subprocess
 import sys
@@ -208,6 +209,11 @@ def cmd_incoming(config, sender, message, name="", timestamp=""):
 
     print(f"[{datetime.now()}] Signal from {sender}: {message[:80]}... (inbox={inbox_msg_id})")
 
+    # Check for /new command — reset session with memory handoff
+    if message.strip().lower() == "/new":
+        cmd_new_session(config, sender, inbox_msg_id, name=name, timestamp=ts)
+        return
+
     # 3. Fire trigger (trigger.sh handles IPC socket injection vs new session)
     payload = json.dumps({
         "inbox_message_id": inbox_msg_id,
@@ -226,6 +232,147 @@ def cmd_incoming(config, sender, message, name="", timestamp=""):
         )
     except Exception as e:
         print(f"Failed to fire trigger: {e}", file=sys.stderr)
+
+
+# --- /new SESSION RESET ---
+
+FAREWELL_TEMPLATE_PATH = "/atlas/app/prompts/trigger-channel-signal-farewell.md"
+
+
+def _inject_ipc(socket_path, message):
+    """Inject a message into a running Claude session via IPC socket."""
+    s = _socket_mod.socket(_socket_mod.AF_UNIX, _socket_mod.SOCK_STREAM)
+    s.settimeout(10)
+    try:
+        s.connect(socket_path)
+        s.sendall(json.dumps({"action": "send", "text": message, "submit": True}).encode() + b"\n")
+    finally:
+        s.close()
+
+
+def _wait_for_socket_gone(socket_path, timeout=120):
+    """Wait for IPC socket to disappear (session finished processing)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not os.path.exists(socket_path):
+            return True
+        time.sleep(2)
+    return False
+
+
+def _load_farewell_message():
+    """Load the farewell prompt template with today's date substituted."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if os.path.exists(FAREWELL_TEMPLATE_PATH):
+        with open(FAREWELL_TEMPLATE_PATH) as f:
+            return f.read().replace("{{today}}", today)
+    # Inline fallback
+    return (
+        "<session-ending reason=\"user-requested-new-session\">\n"
+        "The user sent /new to start a fresh conversation. This session is being retired.\n\n"
+        f"Save important context to memory/journal/{today}.md (create or append):\n"
+        "- Summary of this conversation's key topics\n"
+        "- Decisions made and tasks created/completed\n"
+        "- Open questions or commitments\n"
+        "- Context the next session should know\n\n"
+        "Update memory/MEMORY.md only for genuinely new long-term information.\n\n"
+        "IMPORTANT: Do NOT send any Signal messages. Save to memory silently.\n"
+        "</session-ending>"
+    )
+
+
+def _resume_with_farewell(session_id, sender, farewell):
+    """Resume an inactive session with a farewell message so it can save to memory."""
+    env = os.environ.copy()
+    env["ATLAS_TRIGGER"] = TRIGGER_NAME
+    env["ATLAS_TRIGGER_CHANNEL"] = "signal"
+    env["ATLAS_TRIGGER_SESSION_KEY"] = sender
+    env.pop("CLAUDECODE", None)
+    subprocess.run(
+        ["claude-atlas", "--mode", "trigger",
+         "-p", "--dangerously-skip-permissions",
+         "--resume", session_id,
+         "--output-format", "json",
+         farewell],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=180,
+        env=env,
+    )
+
+
+def cmd_new_session(config, sender, inbox_msg_id, name="", timestamp=""):
+    """Handle /new command: instruct old session to save to memory, then start fresh."""
+    ts = timestamp or datetime.now().isoformat()
+
+    atlas_db = sqlite3.connect(ATLAS_DB_PATH)
+    atlas_db.execute("PRAGMA busy_timeout=5000")
+
+    # Find existing session for this sender
+    row = atlas_db.execute(
+        "SELECT session_id FROM trigger_sessions WHERE trigger_name=? AND session_key=?",
+        (TRIGGER_NAME, sender),
+    ).fetchone()
+
+    old_session_id = row[0] if row else None
+    farewell_sent = False
+
+    if old_session_id:
+        farewell = _load_farewell_message()
+        socket_path = f"/tmp/claudec-{old_session_id}.sock"
+
+        if os.path.exists(socket_path):
+            # Session is currently running — inject farewell via IPC
+            try:
+                _inject_ipc(socket_path, farewell)
+                farewell_sent = True
+                print(f"[{datetime.now()}] /new: Injected farewell into running session {old_session_id}")
+                _wait_for_socket_gone(socket_path, timeout=120)
+            except Exception as e:
+                print(f"[{datetime.now()}] /new: Failed to inject farewell: {e}", file=sys.stderr)
+        else:
+            # Session not running — resume it with farewell prompt
+            try:
+                _resume_with_farewell(old_session_id, sender, farewell)
+                farewell_sent = True
+                print(f"[{datetime.now()}] /new: Resumed session {old_session_id} for farewell")
+            except subprocess.TimeoutExpired:
+                print(f"[{datetime.now()}] /new: Farewell resume timed out", file=sys.stderr)
+            except Exception as e:
+                print(f"[{datetime.now()}] /new: Failed to resume for farewell: {e}", file=sys.stderr)
+
+        # Clear old session from DB (even if farewell failed — proceed with fresh start)
+        atlas_db.execute(
+            "DELETE FROM trigger_sessions WHERE trigger_name=? AND session_key=?",
+            (TRIGGER_NAME, sender),
+        )
+        atlas_db.commit()
+        print(f"[{datetime.now()}] /new: Cleared session for {sender}")
+
+    atlas_db.close()
+
+    # Fire fresh trigger — no session in DB means trigger.sh creates a brand new one
+    payload = json.dumps({
+        "inbox_message_id": inbox_msg_id,
+        "sender": sender,
+        "sender_name": name,
+        "message": "/new",
+        "timestamp": ts,
+        "new_session": True,
+        "previous_session_notified": farewell_sent,
+    })
+
+    try:
+        subprocess.Popen(
+            [TRIGGER_SCRIPT, TRIGGER_NAME, payload, sender],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as e:
+        print(f"[{datetime.now()}] /new: Failed to fire fresh trigger: {e}", file=sys.stderr)
+
+    print(f"[{datetime.now()}] /new: Fresh session fired for {sender} (farewell_sent={farewell_sent})")
 
 
 # --- SEND command ---

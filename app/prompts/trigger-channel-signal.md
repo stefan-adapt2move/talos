@@ -14,3 +14,7 @@ You're handling a **Signal chat message** — real-time, mobile. The sender is a
 - `signal send "<number>" "<message>"` — Send a message to a Signal contact
 - `signal contacts` — List known contacts
 - `signal history "<number>"` — Show message history with a contact
+
+### Special Messages
+
+- When the payload contains `"new_session": true` (user sent `/new`), this is a brand-new session. The previous session was asked to save its context to memory. Greet the user, confirm you're starting fresh, and let them know you're ready. Check your loaded memory for recent context from the previous session.
