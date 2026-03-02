@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "playwright": {
+      "type": "sse",
       "url": "http://localhost:8931/sse"
     }
   }
