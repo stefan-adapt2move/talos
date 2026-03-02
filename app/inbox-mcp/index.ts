@@ -57,9 +57,9 @@ if (IS_TRIGGER) {
       review: z
         .boolean()
         .optional()
-        .default(true)
+        .default(false)
         .describe(
-          "Whether a review agent should verify the work before marking it done. Default: true. Set to false for simple or low-risk tasks.",
+          "Whether a review agent should verify the work before marking it done. Default: false. Set to true for more complex tasks.",
         ),
     },
     async ({ content, path, review }) => {
@@ -80,10 +80,13 @@ if (IS_TRIGGER) {
       // Write per-task wake file to signal the watcher
       const indexDir2 = process.env.HOME + "/.index";
       mkdirSync(indexDir2, { recursive: true });
-      writeFileSync(`${indexDir2}/.wake-task-${taskId}`, JSON.stringify({
-        task_id: taskId,
-        path: path || null,
-      }));
+      writeFileSync(
+        `${indexDir2}/.wake-task-${taskId}`,
+        JSON.stringify({
+          task_id: taskId,
+          path: path || null,
+        }),
+      );
 
       return ok(task);
     },
@@ -98,9 +101,7 @@ if (IS_TRIGGER) {
     },
     async ({ task_id }) => {
       const db = getDb();
-      const task = db
-        .prepare("SELECT * FROM tasks WHERE id = ?")
-        .get(task_id);
+      const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(task_id);
       if (!task) return err(`Task ${task_id} not found`);
       return ok(task);
     },
@@ -165,15 +166,19 @@ if (IS_TRIGGER) {
     {},
     async () => {
       const db = getDb();
-      const locks = db.prepare(
-        `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status
+      const locks = db
+        .prepare(
+          `SELECT pl.task_id, pl.locked_path, pl.pid, pl.locked_at, t.status
          FROM path_locks pl
          JOIN tasks t ON t.id = pl.task_id
-         ORDER BY pl.locked_at ASC`
-      ).all();
-      const activeCount = db.prepare(
-        "SELECT COUNT(*) as count FROM tasks WHERE status IN ('processing', 'reviewing')"
-      ).get() as { count: number };
+         ORDER BY pl.locked_at ASC`,
+        )
+        .all();
+      const activeCount = db
+        .prepare(
+          "SELECT COUNT(*) as count FROM tasks WHERE status IN ('processing', 'reviewing')",
+        )
+        .get() as { count: number };
       return ok({ active_workers: activeCount.count, locks });
     },
   );

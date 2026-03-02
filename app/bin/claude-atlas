@@ -82,25 +82,33 @@ if [ "$MODE" = "worker-ephemeral" ]; then
     # Ephemeral worker: minimal prompt, no memory, no inbox MCP
     export ATLAS_WORKER_EPHEMERAL=1
     if [ -f "$APP_DIR/prompts/worker-ephemeral-prompt.md" ]; then
-        SYSTEM_PROMPT="$SYSTEM_PROMPT
-
----
-
-$(cat "$APP_DIR/prompts/worker-ephemeral-prompt.md")"
+        SYSTEM_PROMPT="$(cat "$APP_DIR/prompts/worker-ephemeral-prompt.md")"
     fi
 
 elif [ "$MODE" = "reviewer" ]; then
     # Review agent: verifies worker output against acceptance criteria
     export ATLAS_REVIEWER=1
     if [ -f "$APP_DIR/prompts/reviewer-system-prompt.md" ]; then
-        SYSTEM_PROMPT="$SYSTEM_PROMPT
-
----
-
-$(cat "$APP_DIR/prompts/reviewer-system-prompt.md")"
+        SYSTEM_PROMPT="$(cat "$APP_DIR/prompts/reviewer-system-prompt.md")"
     fi
 
 elif [ "$MODE" = "trigger" ]; then
+    if [ -f "$WORKSPACE/SOUL.md" ]; then
+        SYSTEM_PROMPT="$SYSTEM_PROMPT
+
+<soul file=\"$WORKSPACE/SOUL.md\">
+$(cat "$WORKSPACE/SOUL.md")
+</soul>"
+    fi
+
+    if [ -f "$WORKSPACE/IDENTITY.md" ]; then
+        SYSTEM_PROMPT="$SYSTEM_PROMPT
+
+<identity file=\"$WORKSPACE/IDENTITY.md\">
+$(cat "$WORKSPACE/IDENTITY.md")
+</identity>"
+    fi
+
     # Trigger sessions: add trigger-system-prompt (communication style/restrictions) + soul + identity + trigger-specific prompts
     if [ -f "$APP_DIR/prompts/trigger-system-prompt.md" ]; then
         SYSTEM_PROMPT="$SYSTEM_PROMPT
@@ -108,22 +116,6 @@ elif [ "$MODE" = "trigger" ]; then
 ---
 
 $(cat "$APP_DIR/prompts/trigger-system-prompt.md")"
-    fi
-
-    if [ -f "$WORKSPACE/SOUL.md" ]; then
-        SYSTEM_PROMPT="$SYSTEM_PROMPT
-
----
-
-$(cat "$WORKSPACE/SOUL.md")"
-    fi
-
-    if [ -f "$WORKSPACE/IDENTITY.md" ]; then
-        SYSTEM_PROMPT="$SYSTEM_PROMPT
-
----
-
-$(cat "$WORKSPACE/IDENTITY.md")"
     fi
 
     CHANNEL="${ATLAS_TRIGGER_CHANNEL:-internal}"

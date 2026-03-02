@@ -76,7 +76,7 @@ RUN mkdir -p /atlas/app/hooks \
   /home/atlas/mcps \
   /home/atlas/triggers \
   /home/atlas/secrets \
-  /home/atlas/bin \
+  /home/atlas/helpers \
   /home/atlas/.qmd-cache \
   /atlas/logs
 
