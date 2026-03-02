@@ -167,10 +167,6 @@ fi
 echo "[$(date)] Phase 8: Claude Code settings + discovery links"
 bun run /atlas/app/hooks/generate-settings.ts || echo "  ⚠ Settings generation failed (non-fatal)"
 
-# .mcp.json discovery (Claude Code looks for this in CWD = $HOME)
-ln -sf /atlas/app/.mcp.json "$HOME/.mcp.json"
-echo "  MCP config symlinked: $HOME/.mcp.json -> /atlas/app/.mcp.json"
-
 # Skills: merged real directory with per-skill symlinks
 # System skills (from image) + Atlas-created skills (from home/skills/)
 rm -rf "$HOME/.claude/skills"
