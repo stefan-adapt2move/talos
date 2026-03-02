@@ -166,12 +166,29 @@ if [ ! -f "$ATLAS_MCP_DIR/user.json" ]; then
 USER_EOF
 fi
 
-# Select MCP configs based on mode
-MCP_CONFIGS=()
+# Select and merge MCP configs based on mode into a single file.
+# --mcp-config is variadic and consumes all subsequent args including --,
+# so we MUST pass exactly one merged config file.
+MCP_SOURCES=()
 if [ "$MODE" = "trigger" ]; then
-  MCP_CONFIGS+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json" "$ATLAS_MCP_DIR/user.json")
+  MCP_SOURCES+=("$ATLAS_MCP_DIR/system.json" "$ATLAS_MCP_DIR/atlas.json" "$ATLAS_MCP_DIR/user.json")
 elif [ "$MODE" = "worker" ] || [ "$MODE" = "worker-ephemeral" ] || [ "$MODE" = "reviewer" ]; then
-  MCP_CONFIGS+=("$ATLAS_MCP_DIR/user.json")
+  MCP_SOURCES+=("$ATLAS_MCP_DIR/user.json")
+fi
+
+MCP_MERGED=""
+if [ ${#MCP_SOURCES[@]} -gt 0 ]; then
+  MCP_MERGED="$ATLAS_MCP_DIR/.merged-${MODE}.json"
+  python3 -c "
+import json, sys
+merged = {'mcpServers': {}}
+for f in sys.argv[1:]:
+    try:
+        data = json.load(open(f))
+        merged['mcpServers'].update(data.get('mcpServers', {}))
+    except: pass
+json.dump(merged, open(sys.argv[0], 'w'), indent=2)
+" "$MCP_MERGED" "${MCP_SOURCES[@]}"
 fi
 
 # Build final claude arguments.
@@ -210,13 +227,13 @@ fi
 if [ "$HAS_MODEL_FLAG" = false ]; then
     FINAL_ARGS+=(--model "$MODEL")
 fi
-if [ ${#MCP_CONFIGS[@]} -gt 0 ]; then
+if [ -n "$MCP_MERGED" ]; then
     FINAL_ARGS+=(--strict-mcp-config)
 fi
 FINAL_ARGS+=("${CLAUDE_FLAGS[@]}")
-# --mcp-config must be last flag before -- to prevent it eating other args
-if [ ${#MCP_CONFIGS[@]} -gt 0 ]; then
-    FINAL_ARGS+=(--mcp-config "${MCP_CONFIGS[@]}")
+# --mcp-config with a single merged file, right before -- and the prompt
+if [ -n "$MCP_MERGED" ]; then
+    FINAL_ARGS+=(--mcp-config "$MCP_MERGED")
 fi
 FINAL_ARGS+=(--)
 FINAL_ARGS+=("${CLAUDE_POSITIONAL[@]}")
