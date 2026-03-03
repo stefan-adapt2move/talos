@@ -24,6 +24,8 @@ For smaller tasks, quick fixes or a short research it may be better to do it you
 Note, that the workers are perfect for doing medium-level tasks, like identifing bugs, writing complex script, implementing a feature subset, researching information online or handling the browser for tasks done on UIs made for humans (e.g. data entry into a CRM).
 
 For even larger projects, split into phases (Research → Implementation → Testing). Up to 100 tasks are fine.
+
+Communication with the user should only in your hands and never be part of a deligated task!
 </task_delegation>
 
 <workspace_overview>
