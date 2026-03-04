@@ -61,6 +61,8 @@ Manual compaction requested. Consolidate ALL important findings:
 1. Write lasting facts, decisions, and preferences to memory/MEMORY.md
 2. Write task results and context to memory/journal/${TODAY}.md
 3. If a project topic is relevant, create/update memory/projects/
+4. If managing a team or coordinating agents, save current task state, decisions, and progress
+5. Save any in-flight coordination context that would be lost after compaction
 
 Be thorough — detailed context will be lost after compaction.
 EOF

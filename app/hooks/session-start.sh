@@ -2,14 +2,7 @@
 # SessionStart Hook: Loads identity + memory into Claude's context
 set -euo pipefail
 
-# Ephemeral workers and reviewers: no memory context needed
-if [ "${ATLAS_WORKER_EPHEMERAL:-}" = "1" ] || [ "${ATLAS_REVIEWER:-}" = "1" ]; then
-  exit 0
-fi
-
 WORKSPACE="$HOME"
-IDENTITY="$WORKSPACE/IDENTITY.md"
-SOUL="$WORKSPACE/SOUL.md"
 MEMORY="$WORKSPACE/memory/MEMORY.md"
 MEMORY_DIR="$WORKSPACE/memory"
 DB="$WORKSPACE/.index/atlas.db"
@@ -44,12 +37,12 @@ if [ -d "$MEMORY_DIR/journal" ]; then
   fi
 fi
 
-# Show pending inbox count
+# Show pending task count
 if [ -f "$DB" ]; then
   PENDING=$(sqlite3 "$DB" "SELECT count(*) FROM tasks WHERE status='pending';" 2>/dev/null || echo "0")
   if [ "$PENDING" -gt 0 ]; then
     echo "<inbox-status>"
-    echo "You have $PENDING pending task(s) in the queue. Workers are dispatched automatically."
+    echo "You have $PENDING pending task(s) in the queue."
     echo "</inbox-status>"
     echo ""
   fi

@@ -72,10 +72,15 @@ try {
   if (parsed.subagent_review) models.subagent_review = parsed.subagent_review;
   if (parsed.hooks) models.hooks = parsed.hooks;
   const parsedFailure = parseFailureHandlingFromYaml(raw);
-  if (parsedFailure.notification_command !== undefined) failure.notification_command = parsedFailure.notification_command;
-  if (parsedFailure.backoff_initial_seconds) failure.backoff_initial_seconds = parsedFailure.backoff_initial_seconds;
-  if (parsedFailure.backoff_max_seconds) failure.backoff_max_seconds = parsedFailure.backoff_max_seconds;
-  if (parsedFailure.notification_threshold_minutes) failure.notification_threshold_minutes = parsedFailure.notification_threshold_minutes;
+  if (parsedFailure.notification_command !== undefined)
+    failure.notification_command = parsedFailure.notification_command;
+  if (parsedFailure.backoff_initial_seconds)
+    failure.backoff_initial_seconds = parsedFailure.backoff_initial_seconds;
+  if (parsedFailure.backoff_max_seconds)
+    failure.backoff_max_seconds = parsedFailure.backoff_max_seconds;
+  if (parsedFailure.notification_threshold_minutes)
+    failure.notification_threshold_minutes =
+      parsedFailure.notification_threshold_minutes;
 } catch {
   console.log("Warning: could not read config.yml, using default models");
 }
@@ -110,10 +115,20 @@ const settings: Record<string, unknown> = {
     allow: [
       "Bash(*)",
       "Read",
+      "Write",
+      "Edit",
       "Glob",
       "Grep",
       "WebFetch",
       "WebSearch",
+      "Agent",
+      "TeamCreate",
+      "TeamDelete",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
+      "SendMessage",
       "mcp__*",
     ],
     deny: [
@@ -133,9 +148,7 @@ const settings: Record<string, unknown> = {
     ],
     Stop: [
       {
-        hooks: [
-          { type: "command", command: "/atlas/app/hooks/stop.sh" },
-        ],
+        hooks: [{ type: "command", command: "/atlas/app/hooks/stop.sh" }],
       },
     ],
     PreCompact: [
@@ -148,7 +161,10 @@ const settings: Record<string, unknown> = {
       {
         matcher: "manual",
         hooks: [
-          { type: "command", command: "/atlas/app/hooks/pre-compact-manual.sh" },
+          {
+            type: "command",
+            command: "/atlas/app/hooks/pre-compact-manual.sh",
+          },
         ],
       },
     ],
@@ -169,14 +185,14 @@ const settings: Record<string, unknown> = {
 mkdirSync(HOME + "/.claude", { recursive: true });
 writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
 
-// Generate trigger MCP config: base .mcp.json + inbox + memory
+// Generate trigger MCP config: base .mcp.json + atlas-mcp + memory
 const MCP_BASE_PATH = "/atlas/app/.mcp.json";
 const MCP_TRIGGER_PATH = HOME + "/.mcp-trigger.json";
 try {
   const baseMcp = JSON.parse(readFileSync(MCP_BASE_PATH, "utf-8"));
-  baseMcp.mcpServers.inbox = {
+  baseMcp.mcpServers.work = {
     command: "bun",
-    args: ["run", "/atlas/app/inbox-mcp/index.ts"],
+    args: ["run", "/atlas/app/atlas-mcp/index.ts"],
   };
   baseMcp.mcpServers.memory = { command: "qmd", args: ["mcp"] };
   writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
@@ -185,4 +201,6 @@ try {
   console.log("Warning: could not generate trigger MCP config:", e);
 }
 
-console.log(`Settings generated: main=${models.main}, subagent_review=${models.subagent_review}, hooks=${models.hooks}`);
+console.log(
+  `Settings generated: main=${models.main}, subagent_review=${models.subagent_review}, hooks=${models.hooks}`,
+);

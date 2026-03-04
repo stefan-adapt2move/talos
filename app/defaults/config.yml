@@ -2,18 +2,16 @@
 # Editable by Claude and via the Web-UI
 
 models:
-  trigger: opus # Trigger sessions (PM role) — needs strong reasoning
-  worker: sonnet # Ephemeral worker sessions
-  reviewer: sonnet # Review agent sessions
+  trigger: opus # Trigger sessions (PM/team lead) — needs strong reasoning
   cron: sonnet # Cron/scheduled trigger sessions
   subagent_review: sonnet # SubagentStop quality gate (prompt hook)
   hooks: haiku # Default model for other prompt/agent hooks
 
 memory:
-  qmd_search_mode: search # search (BM25) | vsearch (vector) | query (hybrid)
+  qmd_search_mode: query # search (BM25) | vsearch (vector) | query (hybrid)
   qmd_max_results: 6
   load_memory_md: true
-  load_journal_days: 2
+  load_journal_days: 7
 
 # Signal integration (requires signal-cli)
 # Install: apt-get install -y signal-cli  (in user-extensions.sh)
@@ -39,11 +37,6 @@ daily_cleanup:
   enabled: true
   retention_days: 30 # How long to keep completed tasks, messages, etc.
   metrics_retention_days: 90 # How long to keep session metrics
-
-workers:
-  max_parallel: 3 # Maximum parallel task-runners (code + research)
-  max_review_iterations: 5 # Max worker↔reviewer feedback iterations per task
-  max_task_retries: 3 # Max retries on transient failures (rate limit, API timeout)
 
 team:
   # No limit - Claude has full control

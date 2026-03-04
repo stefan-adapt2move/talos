@@ -6,7 +6,6 @@ ENV TZ=Europe/Berlin
 # System packages (without nodejs - installed separately below)
 RUN apt-get update && apt-get install -y \
   curl wget git jq ripgrep \
-  inotify-tools \
   supervisor \
   nginx \
   sqlite3 \
@@ -65,7 +64,7 @@ RUN npm install -g @tobilu/qmd || true
 RUN mkdir -p /atlas/app/hooks \
   /atlas/app/prompts \
   /atlas/app/triggers/cron \
-  /atlas/app/inbox-mcp \
+  /atlas/app/atlas-mcp \
   /atlas/app/web-ui \
   /atlas/app/defaults/skills \
   /home/atlas/memory/projects \
@@ -84,18 +83,16 @@ RUN mkdir -p /atlas/app/hooks \
 # Copy application code
 COPY app/ /atlas/app/
 COPY .claude/settings.json /atlas/app/.claude/settings.json
-COPY .claude/agents/ /atlas/app/defaults/agents/
 
 # Set execute permissions
 RUN chmod +x /atlas/app/entrypoint.sh \
   && chmod +x /atlas/app/init.sh \
   && chmod +x /atlas/app/hooks/*.sh \
-  && chmod +x /atlas/app/watcher.sh \
   && chmod +x /atlas/app/triggers/cron/*.sh \
   && chmod +x /atlas/app/bin/*
 
-# Install Inbox-MCP dependencies
-WORKDIR /atlas/app/inbox-mcp
+# Install Atlas-MCP dependencies
+WORKDIR /atlas/app/atlas-mcp
 RUN bun install
 
 # Install Web-UI dependencies

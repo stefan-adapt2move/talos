@@ -7,7 +7,6 @@ let db: Database | null = null;
 
 function createTables(database: Database): void {
   // Messages: inbox log for external events (signal, email, web)
-  // Tasks: internal work queue created by triggers for the worker session
   database.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,26 +22,14 @@ function createTables(database: Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trigger_name TEXT NOT NULL,
       content TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','reviewing','done','failed','cancelled')),
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','failed','cancelled')),
       path TEXT,
-      review INTEGER DEFAULT 1,
-      review_iteration INTEGER DEFAULT 0,
-      worker_result TEXT,
       response_summary TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       processed_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
-
-    CREATE TABLE IF NOT EXISTS task_awaits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id INTEGER NOT NULL UNIQUE,
-      trigger_name TEXT NOT NULL,
-      session_key TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (task_id) REFERENCES tasks(id)
-    );
 
     CREATE TABLE IF NOT EXISTS trigger_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,15 +60,14 @@ function createTables(database: Database): void {
     );
   `);
 
-  // Path locks: per-task filesystem locking for parallel execution
+  // Path locks: filesystem locking for parallel execution safety
   database.exec(`
     CREATE TABLE IF NOT EXISTS path_locks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       task_id INTEGER NOT NULL UNIQUE,
       locked_path TEXT NOT NULL,
       pid INTEGER,
-      locked_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (task_id) REFERENCES tasks(id)
+      locked_at TEXT DEFAULT (datetime('now'))
     );
   `);
 
@@ -391,6 +377,77 @@ function migrateSchema(database: Database): void {
         INSERT INTO messages (id, channel, sender, content, created_at)
           SELECT id, channel, sender, content, created_at FROM _messages_rm_status;
         DROP TABLE _messages_rm_status;
+      `);
+      database.exec("COMMIT");
+    } catch (e) {
+      database.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  // --- v3 migration: Drop task_awaits table (no longer needed — triggers orchestrate directly) ---
+  const taskAwaitsInfo = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='task_awaits'"
+  ).get();
+  if (taskAwaitsInfo) {
+    database.exec("DROP TABLE task_awaits");
+  }
+
+  // --- v3 migration: Simplify tasks table (remove reviewing status, review columns) ---
+  const tasksInfoV3 = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+  ).get() as { sql: string } | undefined;
+
+  if (tasksInfoV3?.sql?.includes("'reviewing'") || tasksInfoV3?.sql?.includes("review_iteration")) {
+    database.exec("BEGIN");
+    try {
+      database.exec(`
+        ALTER TABLE tasks RENAME TO _tasks_v2;
+        CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trigger_name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','failed','cancelled')),
+          path TEXT,
+          response_summary TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          processed_at TEXT
+        );
+        INSERT INTO tasks (id, trigger_name, content, status, path, response_summary, created_at, processed_at)
+          SELECT id, trigger_name, content,
+            CASE status WHEN 'reviewing' THEN 'processing' ELSE status END,
+            path, response_summary, created_at, processed_at
+          FROM _tasks_v2;
+        DROP TABLE _tasks_v2;
+        CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
+      `);
+      database.exec("COMMIT");
+    } catch (e) {
+      database.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  // --- v3 migration: Remove FK from path_locks (locks now keyed by PID, not task) ---
+  const plInfo = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='path_locks'"
+  ).get() as { sql: string } | undefined;
+
+  if (plInfo?.sql?.includes("FOREIGN KEY")) {
+    database.exec("BEGIN");
+    try {
+      database.exec(`
+        ALTER TABLE path_locks RENAME TO _path_locks_v2;
+        CREATE TABLE path_locks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL UNIQUE,
+          locked_path TEXT NOT NULL,
+          pid INTEGER,
+          locked_at TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO path_locks (id, task_id, locked_path, pid, locked_at)
+          SELECT id, task_id, locked_path, pid, locked_at FROM _path_locks_v2;
+        DROP TABLE _path_locks_v2;
       `);
       database.exec("COMMIT");
     } catch (e) {

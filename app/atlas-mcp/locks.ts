@@ -80,20 +80,9 @@ export function cleanupStaleLocks(): number {
     } catch {
       // Process doesn't exist — stale lock
       db.prepare("DELETE FROM path_locks WHERE task_id = ?").run(lock.task_id);
-      // Reset task to pending so it can be re-dispatched
-      db.prepare("UPDATE tasks SET status = 'pending', processed_at = NULL WHERE id = ? AND status IN ('processing', 'reviewing')").run(lock.task_id);
       cleaned++;
     }
   }
 
   return cleaned;
-}
-
-/** Count active task-runner processes (tasks in processing/reviewing state) */
-export function activeWorkerCount(): number {
-  const db = getDb();
-  const result = db.prepare(
-    "SELECT COUNT(*) as count FROM tasks WHERE status IN ('processing', 'reviewing')"
-  ).get() as { count: number };
-  return result.count;
 }

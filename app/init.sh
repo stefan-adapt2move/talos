@@ -101,7 +101,7 @@ if [ ! -f "$DB" ]; then
 fi
 
 # Always run canonical schema init + migrations (idempotent)
-bun -e "import { initDb } from '/atlas/app/inbox-mcp/db'; initDb();" || {
+bun -e "import { initDb } from '/atlas/app/atlas-mcp/db'; initDb();" || {
   echo "  ⚠ Database init via bun failed (non-fatal)"
 }
 
@@ -187,11 +187,10 @@ bun run /atlas/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (
 
 # ── Phase 10: Start Services ──
 echo "[$(date)] Phase 10: Starting services"
-supervisorctl start inbox-mcp || true
+supervisorctl start atlas-mcp || true
 sleep 1
 supervisorctl start playwright-mcp || true
 supervisorctl start web-ui || true
-supervisorctl start watcher || true
 supervisorctl start supercronic || true
 
 echo "[$(date)] Atlas init complete. First run: $FIRST_RUN"

@@ -70,12 +70,12 @@ Atlas runs entirely in a single Docker container managed by supervisord:
 |-----------|------|---------|
 | **nginx** | 8080 | Reverse proxy to web-ui |
 | **web-ui** | 3000 | Hono.js + HTMX dashboard |
-| **inbox-mcp** | stdio | MCP server for Claude's inbox tools |
+| **atlas-mcp** | stdio | MCP server for Claude's work management tools |
 | **qmd** | 8181 | Memory search (BM25/vector/hybrid) |
 | **watcher** | — | inotifywait loop, resumes Claude on `.wake` |
 | **supercronic** | — | Cron job runner |
 
-See [docs/Architecture.md](docs/Architecture.md) for component overview, [docs/inbox-mcp.md](docs/inbox-mcp.md) for MCP tools, and [docs/qmd-memory.md](docs/qmd-memory.md) for memory search.
+See [docs/Architecture.md](docs/Architecture.md) for component overview, [docs/atlas-mcp.md](docs/inbox-mcp.md) for MCP tools, and [docs/qmd-memory.md](docs/qmd-memory.md) for memory search.
 
 ## Triggers
 
@@ -113,7 +113,7 @@ atlas/
 │   │   ├── stop.sh               # Checks inbox, continues or sleeps
 │   │   ├── pre-compact-auto.sh   # Memory flush before compaction
 │   │   └── subagent-stop.sh      # Quality gate for team results
-│   ├── inbox-mcp/                # MCP server (inbox + trigger tools)
+│   ├── atlas-mcp/                # MCP server (work management tools)
 │   ├── web-ui/                   # Hono.js + HTMX dashboard
 │   ├── triggers/                 # Trigger runner scripts
 │   │   ├── trigger.sh            # Generic trigger runner
@@ -200,7 +200,7 @@ Claude has access to these tools via the inbox-mcp server:
 - `qmd_vector_search` — Semantic vector search
 - `qmd_deep_search` — Combined hybrid search
 
-See [docs/inbox-mcp.md](docs/inbox-mcp.md) for inbox/trigger tools, [docs/qmd-memory.md](docs/qmd-memory.md) for memory tools, and [docs/hooks.md](docs/hooks.md) for lifecycle hooks.
+See [docs/atlas-mcp.md](docs/atlas-mcp.md) for work management tools, [docs/qmd-memory.md](docs/qmd-memory.md) for memory tools, and [docs/hooks.md](docs/hooks.md) for lifecycle hooks.
 
 ## Logs
 
@@ -231,7 +231,7 @@ See [docs/development.md](docs/development.md) for more development commands.
 ## Documentation
 
 - [docs/Architecture.md](docs/Architecture.md) — Component overview
-- [docs/inbox-mcp.md](docs/inbox-mcp.md) — Inbox system and MCP tools
+- [docs/atlas-mcp.md](docs/atlas-mcp.md) — Work management tools system
 - [docs/hooks.md](docs/hooks.md) — Lifecycle hooks
 - [docs/watcher.md](docs/watcher.md) — Event-driven wake system
 - [docs/qmd-memory.md](docs/qmd-memory.md) — Memory and search

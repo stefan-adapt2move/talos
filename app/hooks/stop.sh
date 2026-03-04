@@ -2,16 +2,20 @@
 # Stop Hook: Session lifecycle management
 set -euo pipefail
 
-# Ephemeral workers and reviewers: lifecycle managed by task-runner
-if [ "${ATLAS_WORKER_EPHEMERAL:-}" = "1" ] || [ "${ATLAS_REVIEWER:-}" = "1" ]; then
-  exit 0
+DB="$HOME/.index/atlas.db"
+
+# --- 1. Release path locks held by this session's PID ---
+if [ -f "$DB" ]; then
+  RELEASED=$(sqlite3 "$DB" "DELETE FROM path_locks WHERE pid=$$; SELECT changes();" 2>/dev/null || echo "0")
+  if [ "$RELEASED" -gt 0 ]; then
+    echo "<system-notice>Released $RELEASED path lock(s) for PID $$.</system-notice>"
+  fi
 fi
 
-# Trigger sessions: remind to write a journal if today's entry doesn't exist
+# --- 2. Trigger sessions: remind to write a journal if today's entry doesn't exist ---
 if [ -n "${ATLAS_TRIGGER:-}" ]; then
   TODAY=$(date +%Y-%m-%d)
   JOURNAL_DIR="$HOME/memory/journal"
-  # Check if a journal file starting with today's date exists
   if [ -d "$JOURNAL_DIR" ] && ls "$JOURNAL_DIR/${TODAY}"*.md 1>/dev/null 2>&1; then
     : # Journal already exists for today
   else
