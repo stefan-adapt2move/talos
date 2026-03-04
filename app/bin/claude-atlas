@@ -72,8 +72,9 @@ $(cat "$APP_DIR/prompts/trigger-channel-${CHANNEL}.md")"
 MCP_DIR="$HOME/.atlas-mcp"
 mkdir -p "$MCP_DIR"
 
-# Defaults (only written if missing — user edits persist across restarts)
-[ -f "$MCP_DIR/system.json" ] || cat > "$MCP_DIR/system.json" << 'EOF'
+# System MCP config: always overwritten (system-managed, not user-editable).
+# User customizations go in atlas.json or user.json.
+cat > "$MCP_DIR/system.json" << 'EOF'
 {
   "mcpServers": {
     "work": {

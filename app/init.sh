@@ -91,6 +91,12 @@ for f in "$WORKSPACE/memory/"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
   echo "  Migrated journal: $(basename $f)"
 done
 
+# Migrate stale MCP system.json (inbox-mcp → atlas-mcp rename)
+MCP_SYS="$WORKSPACE/.atlas-mcp/system.json"
+if [ -f "$MCP_SYS" ] && grep -q "inbox-mcp" "$MCP_SYS" 2>/dev/null; then
+  rm -f "$MCP_SYS"
+  echo "  Removed stale MCP system.json (inbox-mcp reference)"
+fi
 
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
