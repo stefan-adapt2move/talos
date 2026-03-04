@@ -18,19 +18,6 @@ function createTables(database: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_messages_channel_created ON messages(channel, created_at);
 
-    CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trigger_name TEXT NOT NULL,
-      content TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','failed','cancelled')),
-      path TEXT,
-      response_summary TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      processed_at TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
-
     CREATE TABLE IF NOT EXISTS trigger_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trigger_name TEXT NOT NULL,
@@ -239,124 +226,6 @@ function migrateSchema(database: Database): void {
     database.exec(`ALTER TABLE messages DROP COLUMN reply_to`);
   }
 
-  // Migrate: separate tasks from messages into two distinct tables.
-  // Detected by absence of tasks table when messages already exists.
-  const tasksTableInfo = database.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
-  ).get();
-  const messagesTableInfo = database.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
-  ).get();
-
-  if (!tasksTableInfo && messagesTableInfo) {
-    database.exec("BEGIN");
-    try {
-      // 1. Create tasks table
-      database.exec(`
-        CREATE TABLE tasks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          trigger_name TEXT NOT NULL,
-          content TEXT NOT NULL,
-          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','cancelled')),
-          response_summary TEXT,
-          created_at TEXT DEFAULT (datetime('now')),
-          processed_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
-      `);
-
-      // 2. Migrate task rows to tasks table (preserve IDs so task_awaits FK remains valid)
-      database.exec(`
-        INSERT INTO tasks (id, trigger_name, content, status, response_summary, created_at, processed_at)
-          SELECT id, REPLACE(COALESCE(sender,''), 'trigger:', ''), content,
-            CASE status
-              WHEN 'cancelled' THEN 'cancelled'
-              WHEN 'done' THEN 'done'
-              WHEN 'processing' THEN 'processing'
-              ELSE 'pending'
-            END,
-            response_summary, created_at, processed_at
-          FROM messages WHERE channel = 'task';
-      `);
-
-      // 3. Recreate task_awaits with FK → tasks(id), preserving all records
-      database.exec(`
-        CREATE TABLE _task_awaits_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_id INTEGER NOT NULL UNIQUE,
-          trigger_name TEXT NOT NULL,
-          session_key TEXT NOT NULL,
-          created_at TEXT DEFAULT (datetime('now')),
-          FOREIGN KEY (task_id) REFERENCES tasks(id)
-        );
-        INSERT INTO _task_awaits_new (id, task_id, trigger_name, session_key, created_at)
-          SELECT id, task_id, trigger_name, session_key, created_at FROM task_awaits;
-        DROP TABLE task_awaits;
-        ALTER TABLE _task_awaits_new RENAME TO task_awaits;
-      `);
-
-      // 4. Remove migrated task rows from messages
-      database.exec(`DELETE FROM messages WHERE channel = 'task';`);
-
-      // 5. Recreate messages as a plain log: no response_summary, processed_at, or status
-      database.exec(`
-        ALTER TABLE messages RENAME TO _messages_pre_split;
-        CREATE TABLE messages (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          channel TEXT NOT NULL,
-          sender TEXT,
-          content TEXT NOT NULL,
-          created_at TEXT DEFAULT (datetime('now'))
-        );
-        INSERT INTO messages (id, channel, sender, content, created_at)
-          SELECT id, channel, sender, content, created_at
-          FROM _messages_pre_split WHERE channel != 'task';
-        DROP TABLE _messages_pre_split;
-      `);
-
-      database.exec("COMMIT");
-    } catch (e) {
-      database.exec("ROLLBACK");
-      throw e;
-    }
-  }
-
-  // Migrate tasks table: add new columns for ephemeral worker system
-  const tasksInfo = database.prepare(
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
-  ).get() as { sql: string } | undefined;
-
-  if (tasksInfo?.sql && !tasksInfo.sql.includes("worker_result")) {
-    // Add new columns and expand status CHECK constraint
-    database.exec("BEGIN");
-    try {
-      database.exec(`
-        ALTER TABLE tasks RENAME TO _tasks_pre_ephemeral;
-        CREATE TABLE tasks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          trigger_name TEXT NOT NULL,
-          content TEXT NOT NULL,
-          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','reviewing','done','failed','cancelled')),
-          path TEXT,
-          review INTEGER DEFAULT 1,
-          review_iteration INTEGER DEFAULT 0,
-          worker_result TEXT,
-          response_summary TEXT,
-          created_at TEXT DEFAULT (datetime('now')),
-          processed_at TEXT
-        );
-        INSERT INTO tasks (id, trigger_name, content, status, response_summary, created_at, processed_at)
-          SELECT id, trigger_name, content, status, response_summary, created_at, processed_at FROM _tasks_pre_ephemeral;
-        DROP TABLE _tasks_pre_ephemeral;
-        CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
-      `);
-      database.exec("COMMIT");
-    } catch (e) {
-      database.exec("ROLLBACK");
-      throw e;
-    }
-  }
-
   // Remove status column from messages (messages are a fire-and-forget log)
   const msgForStatus = database.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
@@ -393,39 +262,12 @@ function migrateSchema(database: Database): void {
     database.exec("DROP TABLE task_awaits");
   }
 
-  // --- v3 migration: Simplify tasks table (remove reviewing status, review columns) ---
-  const tasksInfoV3 = database.prepare(
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
-  ).get() as { sql: string } | undefined;
-
-  if (tasksInfoV3?.sql?.includes("'reviewing'") || tasksInfoV3?.sql?.includes("review_iteration")) {
-    database.exec("BEGIN");
-    try {
-      database.exec(`
-        ALTER TABLE tasks RENAME TO _tasks_v2;
-        CREATE TABLE tasks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          trigger_name TEXT NOT NULL,
-          content TEXT NOT NULL,
-          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','processing','done','failed','cancelled')),
-          path TEXT,
-          response_summary TEXT,
-          created_at TEXT DEFAULT (datetime('now')),
-          processed_at TEXT
-        );
-        INSERT INTO tasks (id, trigger_name, content, status, path, response_summary, created_at, processed_at)
-          SELECT id, trigger_name, content,
-            CASE status WHEN 'reviewing' THEN 'processing' ELSE status END,
-            path, response_summary, created_at, processed_at
-          FROM _tasks_v2;
-        DROP TABLE _tasks_v2;
-        CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
-      `);
-      database.exec("COMMIT");
-    } catch (e) {
-      database.exec("ROLLBACK");
-      throw e;
-    }
+  // --- v3 migration: Drop tasks table (no longer used — triggers orchestrate via Agent tool) ---
+  const tasksTableExists = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
+  ).get();
+  if (tasksTableExists) {
+    database.exec("DROP TABLE tasks");
   }
 
   // --- v3 migration: Remove FK from path_locks (locks now keyed by PID, not task) ---

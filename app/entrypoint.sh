@@ -17,10 +17,7 @@ rm -f /home/atlas/.cache/qmd/*.pid /tmp/qmd*.pid 2>/dev/null || true
 
 # Clean stale state from previous container run (new PID namespace = all stale)
 if [ -f "/home/atlas/.index/atlas.db" ]; then
-  sqlite3 "/home/atlas/.index/atlas.db" "
-    DELETE FROM path_locks;
-    UPDATE tasks SET status='failed', response_summary='Container restarted' WHERE status='processing';
-  " 2>/dev/null || true
+  sqlite3 "/home/atlas/.index/atlas.db" "DELETE FROM path_locks;" 2>/dev/null || true
 fi
 
 # Drop to atlas user and start supervisord

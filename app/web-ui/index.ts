@@ -56,18 +56,6 @@ function channelIcon(ch: string): string {
   return icons[ch] || "?";
 }
 
-function statusColor(s: string): string {
-  return s === "pending"
-    ? "#ff9800"
-    : s === "processing"
-      ? "#5c9cf5"
-      : s === "failed"
-        ? "#f44336"
-        : s === "cancelled"
-          ? "#999"
-          : "#4caf50"; // done → green
-}
-
 function timeAgo(dt: string): string {
   if (!dt) return "";
   const diff = Date.now() - new Date(dt.endsWith("Z") ? dt : dt + "Z").getTime();
@@ -89,7 +77,6 @@ function layout(
   const nav = [
     ["/", "Dashboard", "dashboard"],
     ["/inbox", "Inbox", "inbox"],
-    ["/tasks", "Tasks", "tasks"],
     ["/triggers", "Triggers", "triggers"],
     ["/analytics", "Analytics", "analytics"],
     ["/sessions", "Sessions", "sessions"],
@@ -366,33 +353,11 @@ const app = new Hono();
 
 // ============ DASHBOARD ============
 app.get("/", (c) => {
-  // Active task count (tasks in processing state)
-  const activeWorkers = (db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status = 'processing'").get() as any)?.c || 0;
-
   // Active path locks
   const activeLocks = (db.prepare("SELECT COUNT(*) as c FROM path_locks").get() as any)?.c || 0;
 
-  // Task statistics (from tasks table)
-  const taskStatusCounts = db
-    .prepare("SELECT status, COUNT(*) as c FROM tasks GROUP BY status")
-    .all() as any[];
-  const taskCounts: Record<string, number> = {};
-  for (const row of taskStatusCounts) {
-    taskCounts[row.status] = row.c;
-  }
-
   // Inbox message count
   const inboxTotal = (db.prepare("SELECT COUNT(*) as c FROM messages").get() as any)?.c || 0;
-
-  // Active tasks (pending, processing)
-  const activeTasks = db
-    .prepare("SELECT * FROM tasks WHERE status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 10")
-    .all() as any[];
-
-  // Recent completed tasks (done or cancelled)
-  const recentCompleted = db
-    .prepare("SELECT * FROM tasks WHERE status IN ('done', 'cancelled') ORDER BY created_at DESC LIMIT 5")
-    .all() as any[];
 
   // Recent journal files (YYYY-MM-DD.md directly in memory/)
   let journals: string[] = [];
@@ -408,41 +373,11 @@ app.get("/", (c) => {
     <h1>Dashboard</h1>
     <div class="grid">
       <div class="stat">
-        <div class="num" style="color:${activeWorkers > 0 ? "#4caf50" : "#999"}">${activeWorkers}</div>
-        <div class="label">Active</div>
+        <div class="num" style="color:${activeLocks > 0 ? "#4caf50" : "#999"}">${activeLocks}</div>
+        <div class="label">Active Locks</div>
       </div>
-      <div class="stat"><div class="num" style="color:#ff9800">${taskCounts["pending"] || 0}</div><div class="label">Pending</div></div>
-      <div class="stat"><div class="num" style="color:#5c9cf5">${taskCounts["processing"] || 0}</div><div class="label">Processing</div></div>
-      <div class="stat"><div class="num" style="color:#4caf50">${taskCounts["done"] || 0}</div><div class="label">Done</div></div>
-      <div class="stat"><div class="num" style="color:#f44336">${taskCounts["failed"] || 0}</div><div class="label">Failed</div></div>
       <div class="stat"><div class="num">${inboxTotal}</div><div class="label">Inbox</div></div>
     </div>
-
-    ${activeTasks.length > 0 ? `
-    <div class="card"><h3>Active Tasks</h3>
-    <table>
-      <tr><th>ID</th><th>Trigger</th><th>Content</th><th>Status</th><th>Time</th></tr>
-      ${activeTasks.map((t) => `<tr>
-        <td>#${t.id}</td>
-        <td><span class="badge" style="background:#7c6ef020;color:#7c6ef0">${safe(t.trigger_name)}</span></td>
-        <td>${safe((t.content || "").slice(0, 60))}${t.content?.length > 60 ? "..." : ""}</td>
-        <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}</span></td>
-        <td class="text-muted">${timeAgo(t.created_at)}</td>
-      </tr>`).join("")}
-    </table></div>` : ""}
-
-    ${recentCompleted.length > 0 ? `
-    <div class="card"><h3>Recent Completed Tasks</h3>
-    <table>
-      <tr><th>ID</th><th>Trigger</th><th>Content</th><th>Status</th><th>Time</th></tr>
-      ${recentCompleted.map((t) => `<tr>
-        <td>#${t.id}</td>
-        <td><span class="badge" style="background:#7c6ef020;color:#7c6ef0">${safe(t.trigger_name)}</span></td>
-        <td>${safe((t.content || "").slice(0, 60))}${t.content?.length > 60 ? "..." : ""}</td>
-        <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}</span></td>
-        <td class="text-muted">${timeAgo(t.created_at)}</td>
-      </tr>`).join("")}
-    </table></div>` : ""}
 
     <div class="card"><h3>Recent Journals</h3>
     ${
@@ -1002,142 +937,6 @@ app.post("/chat", async (c) => {
   });
 
   return c.html(renderConversation(combined) + TYPING);
-});
-
-// ============ TASKS ============
-app.get("/tasks", (c) => {
-  const status = c.req.query("status") || "";
-  const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
-  const limit = 50;
-  const offset = (page - 1) * limit;
-
-  // Stats from tasks table
-  const taskStatusCounts = db
-    .prepare("SELECT status, COUNT(*) as c FROM tasks GROUP BY status")
-    .all() as any[];
-  const tc: Record<string, number> = {};
-  for (const row of taskStatusCounts) {
-    tc[row.status] = row.c;
-  }
-
-  // Filtered query
-  let countSql = "SELECT COUNT(*) as c FROM tasks";
-  let sql = "SELECT * FROM tasks";
-  const params: any[] = [];
-  if (status) {
-    countSql += " WHERE status = ?";
-    sql += " WHERE status = ?";
-    params.push(status);
-  }
-  sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-
-  const total = (db.prepare(countSql).get(...params) as any)?.c || 0;
-  const tasks = db.prepare(sql).all(...params, limit, offset) as any[];
-  const totalPages = Math.ceil(total / limit);
-
-  // Active awaits
-  const awaits = db
-    .prepare(
-      `SELECT t.id as task_id, t.trigger_name, t.status as task_status, t.content, t.created_at
-     FROM tasks t
-     WHERE t.status IN ('pending', 'processing')
-     ORDER BY t.created_at DESC`,
-    )
-    .all() as any[];
-
-  const filters = ["", "pending", "processing", "done", "failed", "cancelled"];
-  const filterHtml = filters
-    .map(
-      (f) =>
-        `<a href="/tasks${f ? "?status=" + f : ""}" class="btn btn-sm ${status === f ? "" : "btn-outline"}" style="margin-right:4px">${f || "All"}</a>`,
-    )
-    .join("");
-
-  const qs = status ? `&status=${status}` : "";
-  const paginationHtml =
-    totalPages > 1
-      ? `<div class="flex mt-8" style="justify-content:space-between">
-    <span class="text-muted">Page ${page} of ${totalPages} (${total} tasks)</span>
-    <span>${page > 1 ? `<a href="/tasks?page=${page - 1}${qs}" class="btn btn-sm btn-outline">Prev</a> ` : ""}${page < totalPages ? `<a href="/tasks?page=${page + 1}${qs}" class="btn btn-sm btn-outline">Next</a>` : ""}</span>
-  </div>`
-      : "";
-
-  const html = `
-    <h1>Tasks</h1>
-    <div class="grid">
-      <div class="stat"><div class="num" style="color:#ff9800">${tc["pending"] || 0}</div><div class="label">Pending</div></div>
-      <div class="stat"><div class="num" style="color:#5c9cf5">${tc["processing"] || 0}</div><div class="label">Processing</div></div>
-      <div class="stat"><div class="num" style="color:#4caf50">${tc["done"] || 0}</div><div class="label">Done</div></div>
-      <div class="stat"><div class="num" style="color:#f44336">${tc["failed"] || 0}</div><div class="label">Failed</div></div>
-      <div class="stat"><div class="num" style="color:#999">${tc["cancelled"] || 0}</div><div class="label">Cancelled</div></div>
-    </div>
-
-    ${
-      awaits.length > 0
-        ? `<div class="card mb-16"><h3>Active Tasks</h3>
-      <table>
-        <tr><th>Task</th><th>Trigger</th><th>Status</th><th>Created</th></tr>
-        ${awaits
-          .map(
-            (a) => `<tr>
-          <td>#${a.task_id}</td>
-          <td>${safe(a.trigger_name)}</td>
-          <td><span class="badge" style="background:${statusColor(a.task_status)}20;color:${statusColor(a.task_status)}">${a.task_status}</span></td>
-          <td class="text-muted">${timeAgo(a.created_at)}</td>
-        </tr>`,
-          )
-          .join("")}
-      </table>
-    </div>`
-        : ""
-    }
-
-    <div class="mb-16">${filterHtml}</div>
-    <table>
-      <tr><th>ID</th><th>Trigger</th><th>Content</th><th>Status</th><th>Path</th><th>Created</th></tr>
-      ${tasks
-        .map(
-          (t) => `
-        <tr class="msg-row" hx-get="/tasks/${t.id}" hx-target="#task-detail-${t.id}" hx-swap="innerHTML">
-          <td>#${t.id}</td>
-          <td><span class="badge" style="background:#7c6ef020;color:#7c6ef0">${safe(t.trigger_name)}</span></td>
-          <td>${safe((t.content || "").slice(0, 80))}${t.content?.length > 80 ? "..." : ""}</td>
-          <td><span class="badge" style="background:${statusColor(t.status)}20;color:${statusColor(t.status)}">${t.status}</span></td>
-          <td class="text-muted" style="font-size:11px">${t.path ? safe(t.path.replace(/^\/home\/atlas\//, "~/")) : "-"}</td>
-          <td class="text-muted">${timeAgo(t.created_at)}</td>
-        </tr>
-        <tr id="task-detail-${t.id}"></tr>
-      `,
-        )
-        .join("")}
-    </table>
-    ${tasks.length === 0 ? '<div class="card text-muted">No tasks found.</div>' : ""}
-    ${paginationHtml}`;
-
-  return c.html(layout("Tasks", html, "tasks"));
-});
-
-app.get("/tasks/:id", (c) => {
-  const task = db
-    .prepare("SELECT * FROM tasks WHERE id = ?")
-    .get(c.req.param("id")) as any;
-  if (!task) return c.html("<td colspan=6>Not found</td>");
-
-  return c.html(`<td colspan="6"><div class="msg-detail">
-    <strong>ID:</strong> ${task.id} | <strong>Trigger:</strong> ${safe(task.trigger_name)} | <strong>Status:</strong> ${task.status}
-    ${task.path ? `<br><strong>Path:</strong> <code>${safe(task.path)}</code>` : ""}
-    <br><strong>Created:</strong> ${task.created_at}
-    ${task.processed_at ? `| <strong>Processed:</strong> ${task.processed_at}` : ""}
-    <hr style="border-color:#3a3b55;margin:8px 0">
-    <strong>Content:</strong>
-<pre style="margin:4px 0;white-space:pre-wrap">${safe(task.content)}</pre>
-    ${
-      task.response_summary
-        ? `<hr style="border-color:#3a3b55;margin:8px 0"><strong>Response:</strong>
-<pre style="margin:4px 0;white-space:pre-wrap">${safe(task.response_summary)}</pre>`
-        : ""
-    }
-  </div></td>`);
 });
 
 // ============ SETTINGS ============

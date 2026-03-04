@@ -5,7 +5,6 @@ set -euo pipefail
 WORKSPACE="$HOME"
 MEMORY="$WORKSPACE/memory/MEMORY.md"
 MEMORY_DIR="$WORKSPACE/memory"
-DB="$WORKSPACE/.index/atlas.db"
 
 # Helper: emit file content wrapped in XML tag
 emit_section() {
@@ -33,17 +32,6 @@ if [ -d "$MEMORY_DIR/journal" ]; then
       echo "  $FNAME ($LINES lines) — $FIRST"
     done
     echo "</recent-journals>"
-    echo ""
-  fi
-fi
-
-# Show pending task count
-if [ -f "$DB" ]; then
-  PENDING=$(sqlite3 "$DB" "SELECT count(*) FROM tasks WHERE status='pending';" 2>/dev/null || echo "0")
-  if [ "$PENDING" -gt 0 ]; then
-    echo "<inbox-status>"
-    echo "You have $PENDING pending task(s) in the queue."
-    echo "</inbox-status>"
     echo ""
   fi
 fi
