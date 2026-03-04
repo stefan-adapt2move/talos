@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
   openssh-client \
   ca-certificates \
   unzip sudo \
+  ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access
