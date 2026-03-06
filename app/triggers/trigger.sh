@@ -68,17 +68,6 @@ SESSION_MODE=$(echo "$ROW" | python3 -c "import sys,json; print(json.loads(sys.s
 # Session key: 3rd argument, defaults to "_default" for persistent triggers
 SESSION_KEY="${3:-_default}"
 
-# Prevent concurrent trigger.sh executions for the same trigger+key pair.
-# Without this, two messages arriving seconds apart both find no IPC socket
-# (session hasn't started yet) and both spawn --resume, causing duplicate responses.
-FLOCK_FILE="/tmp/.trigger-${TRIGGER_NAME}-${SESSION_KEY//[^a-zA-Z0-9_]/_}.flock"
-exec {LOCK_FD}>"$FLOCK_FILE"
-if ! flock -w 30 "$LOCK_FD"; then
-  echo "[$(date)] Trigger $TRIGGER_NAME (key=$SESSION_KEY) locked by another instance — skipping" | tee -a "$LOG"
-  exit 0
-fi
-# Lock held for duration of script; released automatically on exit
-
 # Fallback: load prompt from workspace file
 if [ -z "$PROMPT" ]; then
   PROMPT_FILE="$WORKSPACE/triggers/${TRIGGER_NAME}/prompt.md"
@@ -165,6 +154,41 @@ s.close()
       fi
       # Socket exists but connection failed — session is stale, fall through to spawn
       echo "[$(date)] Stale socket for $EXISTING_SESSION, spawning new session" | tee -a "$LOG"
+    fi
+  fi
+fi
+
+# --- Acquire lock before spawning to prevent duplicate sessions ---
+# Only the spawn/resume path needs locking. IPC injection (above) is lock-free.
+FLOCK_FILE="/tmp/.trigger-${TRIGGER_NAME}-${SESSION_KEY//[^a-zA-Z0-9_]/_}.flock"
+exec {LOCK_FD}>"$FLOCK_FILE"
+if ! flock -w 60 "$LOCK_FD"; then
+  echo "[$(date)] Trigger $TRIGGER_NAME (key=$SESSION_KEY) locked — skipping spawn" | tee -a "$LOG"
+  exit 0
+fi
+
+# Re-check IPC socket after acquiring lock (first instance may have started the session)
+if [ "$SESSION_MODE" = "persistent" ] && [ -n "${EXISTING_SESSION:-}" ]; then
+  SOCKET="/tmp/claudec-${EXISTING_SESSION}.sock"
+  if [ -S "$SOCKET" ]; then
+    INJECT_MSG="${PAYLOAD:-$PROMPT}"
+    if [ -n "${INJECT_TEMPLATE:-}" ]; then
+      INJECT_MSG=$(safe_replace "{{trigger_name}}" "$TRIGGER_NAME" \
+                                "{{channel}}" "$CHANNEL" \
+                                "{{sender}}" "$SESSION_KEY" \
+                                "{{payload}}" "${PAYLOAD:-$PROMPT}" \
+                                < "$INJECT_TEMPLATE")
+    fi
+    if echo "$INJECT_MSG" | python3 -c "
+import socket, json, sys
+msg = sys.stdin.read()
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+s.sendall(json.dumps({'action': 'send', 'text': msg, 'submit': True}).encode() + b'\n')
+s.close()
+" "$SOCKET" 2>/dev/null; then
+      echo "[$(date)] Injected into session after lock wait $EXISTING_SESSION (key=$SESSION_KEY)" | tee -a "$LOG"
+      exit 0
     fi
   fi
 fi
