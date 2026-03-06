@@ -1,5 +1,6 @@
 #!/bin/bash
 # Stop Hook: Session lifecycle management
+# Completion check is handled by the prompt hook in settings.json (sonnet model)
 set -euo pipefail
 
 DB="$HOME/.index/atlas.db"

@@ -173,6 +173,11 @@ echo "[$(date)] Trigger firing: $TRIGGER_NAME (mode=$SESSION_MODE, key=$SESSION_
 
 TRIGGER_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# Track this run in trigger_runs for crash recovery
+RUN_ID=$(sqlite3 "$DB" "INSERT INTO trigger_runs (trigger_name, session_key, session_mode, payload) \
+  VALUES ('${TRIGGER_NAME//\'/\'\'}', '${SESSION_KEY//\'/\'\'}', '${SESSION_MODE//\'/\'\'}', '$(echo "$PAYLOAD" | sed "s/'/''/g")'); \
+  SELECT last_insert_rowid();" 2>/dev/null || echo "")
+
 # Build Claude command
 disable_remote_mcp
 CLAUDE_BASE_ARGS=(-p --dangerously-skip-permissions)
@@ -267,6 +272,18 @@ conn.execute('''INSERT OR IGNORE INTO session_metrics
 conn.commit()
 conn.close()
 PYEOF
+
+# Mark run as completed + record session_id
+if [ -n "${RUN_ID:-}" ]; then
+  RUN_SESSION_ID=$(python3 -c "
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    print(data.get('session_id', ''))
+except: print('')
+" "$TRIGGER_OUT" 2>/dev/null)
+  sqlite3 "$DB" "UPDATE trigger_runs SET session_id='${RUN_SESSION_ID//\'/\'\'}', completed_at=datetime('now') WHERE id=$RUN_ID;" 2>/dev/null || true
+fi
 
 rm -f "$TRIGGER_OUT"
 

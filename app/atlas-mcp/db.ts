@@ -79,6 +79,22 @@ function createTables(database: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_metrics_created ON session_metrics(created_at);
   `);
+
+  // Trigger runs: tracks active trigger invocations for crash recovery
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS trigger_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_name TEXT NOT NULL,
+      session_key TEXT NOT NULL DEFAULT '_default',
+      session_mode TEXT NOT NULL DEFAULT 'ephemeral',
+      session_id TEXT,
+      payload TEXT,
+      started_at TEXT DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_trigger_runs_active
+      ON trigger_runs(completed_at) WHERE completed_at IS NULL;
+  `);
 }
 
 function migrateSchema(database: Database): void {

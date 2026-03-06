@@ -199,6 +199,51 @@ supervisorctl start playwright-mcp || true
 supervisorctl start web-ui || true
 supervisorctl start supercronic || true
 
+# ── Phase 11: Resume interrupted trigger sessions ──
+echo "[$(date)] Phase 11: Resuming interrupted triggers"
+if [ -f "$DB" ]; then
+  # Get interrupted runs (started but never completed)
+  INTERRUPTED=$(sqlite3 -json "$DB" \
+    "SELECT id, trigger_name, session_key, session_mode, session_id, payload FROM trigger_runs WHERE completed_at IS NULL;" 2>/dev/null || echo "[]")
+
+  # Mark all as completed to prevent double-recovery
+  sqlite3 "$DB" "UPDATE trigger_runs SET completed_at=datetime('now') WHERE completed_at IS NULL;" 2>/dev/null || true
+
+  echo "$INTERRUPTED" | python3 -c "
+import json, sys, subprocess, os
+rows = json.loads(sys.stdin.read())
+for row in rows:
+    rid = row['id']
+    name = row['trigger_name']
+    key = row['session_key']
+    mode = row['session_mode']
+    sid = row.get('session_id') or ''
+    payload = row.get('payload') or ''
+
+    if mode == 'persistent' and sid:
+        # Re-fire with recovery payload — trigger.sh will --resume the session
+        recovery = 'Session resumed after container restart. Continue where you left off.'
+        print(f'  Resuming persistent session: {name} (key={key}, session={sid})')
+        subprocess.Popen(
+            ['/atlas/app/triggers/trigger.sh', name, recovery, key],
+            stdout=open(f'/atlas/logs/trigger-{name}.log', 'a'),
+            stderr=subprocess.STDOUT,
+            start_new_session=True
+        )
+    elif payload:
+        # Re-fire with stored payload — starts fresh
+        print(f'  Re-firing ephemeral trigger: {name} (key={key})')
+        subprocess.Popen(
+            ['/atlas/app/triggers/trigger.sh', name, payload, key],
+            stdout=open(f'/atlas/logs/trigger-{name}.log', 'a'),
+            stderr=subprocess.STDOUT,
+            start_new_session=True
+        )
+    else:
+        print(f'  Skipping unrecoverable run #{rid}: {name} (no session_id or payload)')
+" 2>/dev/null || echo "  ⚠ Trigger resume failed (non-fatal)"
+fi
+
 echo "[$(date)] Atlas init complete. First run: $FIRST_RUN"
 echo "[$(date)] Dashboard: http://127.0.0.1:8080"
 

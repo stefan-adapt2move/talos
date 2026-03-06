@@ -39,6 +39,18 @@ Releases any path locks held by the current PID (crash-safe cleanup):
 
 For trigger sessions (`ATLAS_TRIGGER` is set), the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
 
+## Stop Completion Check (prompt-type hook)
+
+Configured in `settings.json` as a prompt-type hook alongside `stop.sh`. Uses the `subagent_review` model (sonnet) to dynamically evaluate whether the session can safely exit.
+
+The model reviews the conversation for:
+1. **Team lifecycle** — Were all teams shut down (shutdown_request + TeamDelete)?
+2. **Task completion** — Were all created tasks completed?
+3. **Response delivery** — Was a response sent via the channel CLI tool?
+4. **Original request** — Was the triggering task fully addressed?
+
+Sessions without teams or external messages (e.g. simple agent workers) pass immediately. This naturally scopes to the current session's teams since the model only sees this session's conversation — parallel sessions' teams are invisible.
+
 ## pre-compact-auto.sh
 
 Runs before automatic context compaction.
