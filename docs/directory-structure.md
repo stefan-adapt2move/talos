@@ -9,7 +9,7 @@ Core application code. Copied into the container image at build time. Not modifi
 ```
 app/
 ├── bin/                        # CLI wrappers
-│   ├── claude-atlas           # Main claude wrapper with mode handling
+│   ├── claude-atlas           # Trigger session launcher (injects system prompt + MCP config)
 │   ├── email                  # Email CLI wrapper
 │   └── signal                 # Signal CLI wrapper
 ├── defaults/                   # Default configs seeded on first run
@@ -17,31 +17,33 @@ app/
 │   ├── crontab                # Default cron entries
 │   ├── IDENTITY.md            # Default agent identity
 │   ├── SOUL.md                # Default agent soul
+│   ├── agents/                # Default agent specs (symlinked into .claude/agents/)
 │   └── skills/                # System skills (symlinked into .claude/skills/)
 ├── hooks/                      # Claude Code lifecycle hooks
-│   ├── session-start.sh       # Loads identity + memory on wake
-│   ├── stop.sh                # Checks inbox, continues or sleeps
+│   ├── session-start.sh       # Loads memory into context (all sessions)
+│   ├── stop.sh                # Path lock cleanup + journal reminder (trigger sessions)
 │   ├── pre-compact-auto.sh    # Memory flush before compaction
 │   ├── pre-compact-manual.sh  # Memory flush on manual compaction
-│   └── subagent-stop.sh       # Quality gate for team results
-├── inbox-mcp/                  # MCP server (inbox + trigger tools)
+│   ├── subagent-stop.sh       # Quality gate script (legacy, kept for reference)
+│   └── generate-settings.ts  # Generates ~/.claude/settings.json with hooks config
+├── atlas-mcp/                  # MCP server (path locking tools)
 │   ├── index.ts               # Main MCP server
-│   └── db.ts                  # Database initialization
+│   ├── db.ts                  # Database initialization, schema, migrations
+│   └── locks.ts               # Path locking module
 ├── web-ui/                     # Hono.js dashboard
 │   └── index.ts               # Web server
 ├── triggers/                   # Trigger runner scripts
-│   ├── trigger.sh             # Generic trigger runner
+│   ├── trigger.sh             # Generic trigger runner (spawns/resumes trigger sessions)
+│   ├── manage.ts              # Trigger management CLI
 │   ├── sync-crontab.ts        # Crontab auto-generation from DB
 │   └── cron/                  # Cron-specific scripts
-├── integrations/               # Channel CLI tools
-│   ├── signal/                # Signal add-on
-│   └── email/                 # Email add-on
 ├── prompts/                    # Prompt templates
-│   ├── trigger-*.md           # Trigger-specific prompts
-│   └── system-*.md            # System prompts
+│   ├── trigger-system-prompt.md     # Core trigger session system prompt
+│   ├── trigger-channel-*.md         # Channel-specific system prompt additions
+│   ├── trigger-*-inject.md          # IPC injection templates (persistent sessions)
+│   └── trigger-*-pre-compact.md     # Pre-compaction memory flush prompts
 ├── nginx.conf                  # nginx reverse proxy config
-├── watcher.sh                  # inotifywait event watcher
-├── entrypoint.sh               # Container entrypoint
+├── entrypoint.sh               # Container entrypoint (permission fix + supervisord)
 └── init.sh                     # Container startup script
 ```
 
@@ -52,17 +54,20 @@ Persistent home directory. Mounted as a Docker volume (`./home:/home/atlas`). Co
 ```
 home/
 ├── .claude/                    # Claude Code configuration
-│   ├── settings.json          # Hooks config, MCP servers (written by generate-settings.ts)
+│   ├── settings.json          # Hooks config (written by generate-settings.ts)
 │   ├── skills/                # Merged skill directory (per-skill symlinks)
 │   │   └── <skill-name> →     # Symlinks to system or user skills
-│   └── agents/ →              # Symlink to ~/agents
-├── .index/                     # System state (was inbox/)
+│   └── agents/                # Merged agent directory (per-agent symlinks)
+│       └── <agent-name>.md →  # Symlinks to system or user agent specs
+├── .atlas-mcp/                 # MCP config for trigger sessions (generated)
+│   ├── system.json            # Atlas MCP + memory servers
+│   ├── atlas.json             # User-extended MCP servers
+│   ├── user.json              # Playwright + other user MCPs
+│   └── .merged.json           # Merged MCP config (generated on each trigger run)
+├── .index/                     # System state
 │   ├── atlas.db               # SQLite database (WAL mode)
-│   ├── .wake                  # Re-dispatch signal for watcher
-│   ├── .wake-task-*           # Per-task wake files (dispatch signal)
-│   ├── .wake-*                # Trigger re-awakening files
-│   ├── signal/                # Signal databases (per number)
-│   └── email/                 # Email databases (per account)
+│   ├── .trigger-<name>.flock  # Per-trigger flock file (concurrency control)
+│   └── signal/, email/        # Channel-specific databases
 ├── memory/                     # Long-term memory
 │   ├── MEMORY.md              # Persistent knowledge base
 │   ├── journal/               # Daily journal entries
@@ -70,34 +75,34 @@ home/
 │   └── projects/              # Project-specific notes
 ├── projects/                   # Working directories
 ├── skills/                     # Atlas-created skills
-├── agents/                     # Atlas-created agents
-├── triggers/                   # Custom trigger prompts (optional)
-│   └── cron/
-│       └── <trigger-name>/
-│           └── event-prompt.md
+├── agents/                     # Atlas-created agent specs
+├── triggers/                   # Custom trigger prompts
+│   └── <trigger-name>/
+│       └── prompt.md          # Prompt fallback if DB prompt is empty
 ├── mcps/                       # User-installed MCP servers
 ├── secrets/                    # API keys, credentials (denylist)
 ├── bin/                        # User scripts
 ├── supervisor.d/               # Supervisord config overrides
-├── logs/                       # Runtime logs
 ├── IDENTITY.md                 # Agent personality
 ├── SOUL.md                     # Agent soul (core values)
 ├── config.yml                  # System configuration
-├── crontab                     # Generated crontab
-└── user-extensions.sh          # Custom package installs
+├── crontab                     # Generated crontab (managed by sync-crontab.ts)
+└── user-extensions.sh          # Custom package installs (runs on container start)
 ```
 
 ## Key Files Reference
 
 | Path | Description |
 |------|-------------|
-| `app/hooks/session-start.sh` | Loads memory context on wake |
-| `app/hooks/stop.sh` | Inbox checking and sleep orchestration |
-| `app/inbox-mcp/index.ts` | MCP server with inbox/trigger tools |
-| `app/watcher.sh` | inotifywait loop for wake events |
+| `app/bin/claude-atlas` | Trigger session launcher: injects system prompt, model, MCP config |
+| `app/triggers/trigger.sh` | Trigger runner: spawns or resumes Claude sessions per event |
+| `app/hooks/session-start.sh` | Loads memory context on session start |
+| `app/hooks/stop.sh` | Path lock cleanup and journal reminder |
+| `app/atlas-mcp/index.ts` | MCP server with path locking tools |
 | `app/web-ui/index.ts` | Hono.js dashboard server |
+| `app/defaults/agents/` | System agent specs (developer, reviewer, etc.) |
 | `app/defaults/skills/` | System skills (symlinked into `.claude/skills/`) |
-| `/home/atlas/.index/atlas.db` | SQLite database (messages, triggers, sessions) |
+| `/home/atlas/.index/atlas.db` | SQLite database (messages, triggers, sessions, path_locks) |
 | `/home/atlas/memory/MEMORY.md` | Long-term memory storage |
 | `/home/atlas/IDENTITY.md` | Agent identity/personality |
 | `/home/atlas/config.yml` | Runtime configuration |

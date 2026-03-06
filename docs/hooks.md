@@ -1,16 +1,10 @@
 # Lifecycle Hooks
 
-Claude Code hooks inject context at lifecycle events. Hooks are shell scripts that output text — the output becomes part of Claude's context.
+Claude Code hooks inject context at lifecycle events. Hooks are shell scripts or prompts that execute automatically — their output becomes part of Claude's context.
 
 ## session-start.sh
 
-Runs when Claude wakes up. Loads memory context and inbox status.
-
-### Ephemeral Worker / Reviewer Mode
-
-If `ATLAS_WORKER_EPHEMERAL=1` or `ATLAS_REVIEWER=1`, the hook exits immediately. These sessions don't need memory context — the task description provides all necessary context.
-
-### Trigger Mode
+Runs when any Claude Code session starts (trigger sessions and agent teammates).
 
 Outputs XML-wrapped sections:
 
@@ -29,32 +23,25 @@ Outputs XML-wrapped sections:
    </recent-journals>
    ```
 
-3. **Inbox status** — Pending task count (only if > 0):
-   ```xml
-   <inbox-status>
-   You have 3 pending task(s) in the queue. Workers are dispatched automatically.
-   </inbox-status>
-   ```
-
 ## stop.sh
 
-Runs after Claude finishes a response. Handles session lifecycle.
+Runs after Claude finishes a response.
 
-### Session Mode Behavior
+### Path Lock Cleanup
 
-| Mode | Environment Variable | Behavior |
-|------|---------------------|----------|
-| Ephemeral worker | `ATLAS_WORKER_EPHEMERAL=1` | Exit 0 (task-runner manages lifecycle) |
-| Reviewer | `ATLAS_REVIEWER=1` | Exit 0 (task-runner manages lifecycle) |
-| Trigger | `ATLAS_TRIGGER` set | Journal reminder (if today's entry missing), then exit 0 |
+Releases any path locks held by the current PID (crash-safe cleanup):
 
-### Journal Reminder (Trigger Sessions)
+```xml
+<system-notice>Released 1 path lock(s) for PID 1234.</system-notice>
+```
 
-For trigger sessions, the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
+### Journal Reminder (Trigger Sessions Only)
+
+For trigger sessions (`ATLAS_TRIGGER` is set), the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
 
 ## pre-compact-auto.sh
 
-Runs before automatic context compaction. Prompts memory flush.
+Runs before automatic context compaction.
 
 ### Trigger Session Mode
 
@@ -62,17 +49,19 @@ Uses channel-specific templates:
 - `app/prompts/trigger-{CHANNEL}-pre-compact.md`
 - `app/prompts/trigger-pre-compact.md` (fallback)
 
-### Non-Trigger Mode
+### Other Sessions
 
-Outputs generic memory flush instructions (fallback for sessions without a trigger-specific template).
+Outputs generic memory flush instructions.
 
 ## pre-compact-manual.sh
 
 Runs before manual context compaction (when user runs `/compact`). Same behavior as `pre-compact-auto.sh`.
 
-## subagent-stop.sh
+## SubagentStop (prompt-type hook)
 
-Runs when a team member (subagent) finishes. Quality gate that prompts evaluation.
+Configured in `settings.json` as a prompt-type hook. Fires in the trigger session when an agent teammate finishes. Asks the trigger session to evaluate whether the teammate's result is complete and acceptable, or needs rework.
+
+Configured via `generate-settings.ts` — the model used for this review is set by `subagent_review` in `config.yml`.
 
 ## Source
 
@@ -80,4 +69,4 @@ Runs when a team member (subagent) finishes. Quality gate that prompts evaluatio
 - `app/hooks/stop.sh` — Session lifecycle
 - `app/hooks/pre-compact-auto.sh` — Memory flush (auto compaction)
 - `app/hooks/pre-compact-manual.sh` — Memory flush (manual compaction)
-- `app/hooks/subagent-stop.sh` — Quality gate
+- `app/hooks/generate-settings.ts` — Generates `~/.claude/settings.json` with hook config

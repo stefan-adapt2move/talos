@@ -1,6 +1,6 @@
 # Triggers
 
-Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a project manager, and delegates work to ephemeral task-runners.
+Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a project manager, and delegates complex work to agent teammates.
 
 ## Architecture
 
@@ -21,25 +21,25 @@ Event arrives (cron / webhook / manual)
        Yes │        No
        ┌───┘        └───┐
        ▼                ▼
-┌──────────────┐  ┌──────────────────────┐
-│ Respond      │  │ task_create() with   │
-│ directly     │  │ content, path, review│
-│ (CLI tools,  │  │ → .wake-task-<id>    │
-│  MCP action) │  │ → watcher dispatches │
-└──────────────┘  │ → task-runner.sh     │
-                  │ → result via .wake   │
-                  └──────────────────────┘
+┌──────────────┐  ┌──────────────────────────────────────┐
+│ Respond      │  │ TeamCreate + path_lock + Agent(...)   │
+│ directly     │  │ → teammates work in parallel          │
+│ (CLI tools,  │  │ → trigger coordinates via SendMessage │
+│  MCP action) │  │ → path_unlock when done               │
+└──────────────┘  └──────────────────────────────────────┘
 ```
 
 ### Session Types
 
-| | Trigger Session | Ephemeral Worker | Review Agent |
-|---|---|---|---|
-| **Role** | Project manager, user communication | Execute a single task | Verify worker output |
-| **Access** | Workspace (PM scope) | Read/write workspace | Read workspace |
-| **MCPs** | inbox-mcp, qmd | Playwright only | Playwright only |
-| **Spawned by** | `trigger.sh` per event | `task-runner.sh` per task | `task-runner.sh` after worker |
-| **Session persistence** | Configurable per trigger | Fresh per task | Fresh per task |
+| | Trigger Session |
+|---|---|
+| **Role** | Project manager, user communication, team coordination |
+| **System prompt** | SOUL + IDENTITY + trigger-system-prompt + channel prompt |
+| **MCP tools** | `path_lock/unlock/status`, memory (qmd) |
+| **Spawned by** | `trigger.sh` per event |
+| **Session persistence** | Configurable per trigger (ephemeral or persistent) |
+
+Agent teammates are spawned by the trigger session via `Agent(team_name=..., name=..., model=...)`. They are separate Claude Code instances that each load their own context (CLAUDE.md, skills) and receive the spawn prompt from the trigger. See the [Claude Code agent teams docs](https://code.claude.com/docs/en/agent-teams) for details.
 
 ### Session Modes
 
@@ -129,7 +129,7 @@ On-demand triggers. Fire via the web-ui "Run" button or by asking Claude.
   "schedule": "0 * * * *",
   "session_mode": "ephemeral",
   "description": "Hourly GitHub issue check",
-  "prompt": "Check GitHub repos for new issues. If there are critical issues, create tasks via task_create."
+  "prompt": "Check GitHub repos for new issues. If there are critical issues, delegate via Agent to investigate and respond."
 }
 ```
 
@@ -208,32 +208,32 @@ The `{{payload}}` placeholder is replaced with the request body:
 | `application/x-www-form-urlencoded` | JSON of parsed form fields |
 | Anything else | Raw text body |
 
-## Task Delegation
+## Work Delegation
 
-Trigger sessions act as project managers. The delegation flow:
+Trigger sessions act as project managers. The delegation flow from `trigger-system-prompt.md`:
 
-1. **Trigger session processes the event** using its prompt
-2. **Simple case**: Handle directly — respond via CLI tools (`signal send` / `email reply`), take quick actions, done
-3. **Complex case**: Create one or more tasks via `task_create(content, path?, review?)`
-4. `task_create` writes `.wake-task-<id>` → watcher dispatches task-runner
-5. Task-runner spawns ephemeral worker (and optional reviewer)
-6. On completion, trigger session is re-awakened with the result
-
-### Single Task Delegation
-
+### Quick tasks (online research, simple fix)
 ```
-task_create(content="Review and fix issue #42: login page crashes on Safari", path="/home/atlas/projects/webapp")
+Agent(subagent_type="general-purpose", model="haiku", prompt="<task>")
 ```
 
-### Multi-Task Delegation (Parallel)
-
-Tasks with non-overlapping paths run in parallel:
-
+### Medium tasks (feature, bug fix, complex research)
 ```
-task_create(content="Update CHANGELOG.md with v2.3.0 release notes", path="/home/atlas/projects/webapp")
-task_create(content="Run post-deploy smoke tests and report results", review=false)
-task_create(content="Notify stakeholders about the v2.3.0 release", review=false)
+Agent(subagent_type="general-purpose", model="sonnet", prompt="<detailed task>")
 ```
+
+### Complex multi-step tasks
+```
+1. TeamCreate(team_name="<descriptive-name>")
+2. path_lock("/home/atlas/projects/...")  ← if file-modifying work
+3. Agent(team_name=..., name="developer", model="sonnet")
+4. Agent(team_name=..., name="task-reviewer", model="haiku")  ← optional review
+5. Coordinate via SendMessage
+6. path_unlock(...)
+7. TeamDelete()
+```
+
+See `app/prompts/trigger-system-prompt.md` for the full delegation guidelines.
 
 ## Integration Examples
 
@@ -249,8 +249,7 @@ Prompt:         A push event was received:
                 {{payload}}
 
                 Analyze the commits. If there are only docs changes, just log it.
-                If there are code changes, create a task via task_create with a summary
-                of what changed and what needs review.
+                If there are code changes, delegate a code review via Agent.
 ```
 
 ### Signal Channel (Persistent Session)
@@ -265,7 +264,7 @@ Prompt:         New message from Signal:
                 {{payload}}
 
                 Respond conversationally. If the message requests a complex task
-                (code changes, research report, etc.), delegate via task_create.
+                (code changes, research report, etc.), delegate via Agent.
 ```
 
 ### Daily Standup (Ephemeral Cron)
@@ -276,11 +275,10 @@ Type:           Cron
 Schedule:       0 9 * * 1-5
 Session Mode:   ephemeral
 Prompt:         Prepare a standup summary using qmd_search to check recent memory.
-                If there are pending items that need attention, create tasks for them
-                via task_create.
+                If there are pending items that need attention, delegate via Agent.
 ```
 
-### Health Check (Filter, Delegate Only on Problems)
+### Health Check (Ephemeral Cron)
 
 ```
 Name:           health-check
@@ -288,7 +286,7 @@ Type:           Cron
 Schedule:       */30 * * * *
 Session Mode:   ephemeral
 Prompt:         Run a system health check (disk, memory, services).
-                Only create a task if something needs attention.
+                Only delegate a task if something needs attention.
                 Otherwise, silently succeed.
 ```
 
@@ -316,7 +314,7 @@ The `/triggers` page provides full CRUD:
 
 If a trigger's `prompt` field is empty, `trigger.sh` looks for:
 ```
-workspace/triggers/cron/<trigger-name>/event-prompt.md
+workspace/triggers/<trigger-name>/prompt.md
 ```
 
 ## Crontab Sync
@@ -354,18 +352,12 @@ When cron triggers are created, updated, or deleted, the crontab is automaticall
                    ┌─────────┴─────────┐
                    │                   │
               Handles it          Delegates via
-              directly            task_create()
+              directly            Agent Teams
                    │                   │
                    ▼                   ▼
-              ┌─────────┐    ┌────────────────┐
-              │  Done   │    │ .wake-task-<id>│
-              └─────────┘    └───────┬────────┘
-                                     │
-                                     ▼
-                            ┌────────────────┐
-                            │ watcher.sh     │
-                            │ → task-runner  │
-                            │ → worker/review│
-                            │ → trigger wakes│
-                            └────────────────┘
+              ┌─────────┐    ┌────────────────────┐
+              │  Done   │    │ path_lock + Agent  │
+              └─────────┘    │ teammates work in  │
+                             │ parallel           │
+                             └────────────────────┘
 ```

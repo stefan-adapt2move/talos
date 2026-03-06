@@ -1,184 +1,81 @@
-# Task Runner
+# Path Locking
 
-The task-runner orchestrates the complete lifecycle of a single task: path locking, ephemeral worker execution, optional review loop, and trigger re-awakening.
+Path locking prevents concurrent writes to the same directory when multiple agent teammates work in parallel. The trigger session manages locks directly via MCP tools.
 
-## Implementation
+> **Note:** The old task-runner.sh / worker / reviewer pattern has been replaced by native Claude Code Agent Teams. Triggers now orchestrate teammates directly.
 
-Source: `app/task-runner.sh`
+## How It Works
 
-Each task gets its own task-runner process, spawned by the watcher when dispatch conditions are met.
-
-## Lifecycle
+Before spawning a teammate that modifies files, the trigger session acquires a path lock. After the teammate finishes, the lock is released. This prevents two teammates from writing to the same directory simultaneously.
 
 ```
-task-runner.sh <task_id>
-  │
-  ├─ Write PID file (/tmp/task-runner-<id>.pid)
-  ├─ Read task from DB (content, path, review)
-  ├─ Acquire path lock (if path set) → exit if conflict
-  ├─ Set status → 'processing'
-  │
-  ├─ Spawn ephemeral worker session
-  │    └─ claude-atlas --mode worker-ephemeral -p "<task_content>"
-  │    └─ Working directory: path (if set) or $HOME
-  │    └─ Capture JSON output
-  │
-  ├─ Review loop (if review=true)
-  │    ├─ Set status → 'reviewing'
-  │    ├─ Spawn reviewer session with original task + worker result
-  │    ├─ Parse verdict: "approve" or "revise"
-  │    │
-  │    ├─ If "approve" → break
-  │    ├─ If "revise" → resume worker with feedback
-  │    │                 → resume reviewer with new result
-  │    │                 → repeat (max 5 iterations)
-  │    └─ If max iterations → accept current result
-  │
-  ├─ Set status → 'done'
-  ├─ Release path lock
-  ├─ Wake trigger (.wake-<trigger>-<task_id>)
-  └─ Touch .wake → watcher dispatches next tasks
+trigger_session:
+  1. path_lock("/home/atlas/projects/app")
+  2. Agent(team_name=..., name="developer", ...)
+     → teammate modifies /home/atlas/projects/app
+  3. path_unlock("/home/atlas/projects/app")
 ```
 
-## Worker Session
+## MCP Tools
 
-The ephemeral worker receives the task description as a direct prompt (`-p` argument) and runs with:
-- **Mode**: `--mode worker-ephemeral`
-- **MCP**: Base config only (Playwright) — auto-discovered from `$HOME/.mcp.json`
-- **No inbox MCP**, no memory MCP (those are only in the trigger MCP config)
-- **Working directory**: Task's `path` (if set) or `$HOME`
+### path_lock
 
-The worker's final message should contain a JSON result block:
+Acquires a lock on a directory. The lock covers the path and all its subdirectories.
 
-```json
-{
-  "status": "completed",
-  "summary": "What was accomplished",
-  "files_changed": ["path/to/file.ts"],
-  "notes": "Observations or caveats"
-}
+```typescript
+path_lock({ path: "/home/atlas/projects/myapp" })
+// → { locked: true, path: "/home/atlas/projects/myapp", pid: 1234 }
 ```
 
-## Review Loop
+If there is a conflict, returns an error with details about the blocking lock.
 
-When `review=true` for a task, the task-runner spawns a review agent after the worker completes.
+### path_unlock
 
-### Reviewer Session
+Releases a previously acquired lock.
 
-- **Mode**: `--mode reviewer`
-- **MCP**: Base config only (Playwright) — auto-discovered from `$HOME/.mcp.json`
-- **Permissions**: Write/Edit not auto-approved (soft read-only via settings permissions)
-- **Input**: Original task description + worker's result
-- **For tasks with `path`**: Also reviews changed files for quality, security, performance
-
-The reviewer returns a verdict:
-
-```json
-{
-  "verdict": "approve|revise",
-  "feedback": "Summary",
-  "issues": [{"severity": "high", "description": "..."}]
-}
+```typescript
+path_unlock({ path: "/home/atlas/projects/myapp" })
+// → { unlocked: true, path: "/home/atlas/projects/myapp" }
 ```
 
-### Iteration Flow
+### path_lock_status
 
-1. Worker completes → reviewer checks
-2. If "revise" → worker session resumed with feedback
-3. Worker revises → reviewer checks again
-4. Repeat until "approve" or max iterations reached (default: 5)
+Shows all currently active locks.
 
-Both sessions persist during iterations (resumed via `--resume`).
-
-### When Review Runs
-
-- **`review=true`** (default): Review is performed
-- **`review=false`**: Worker result goes directly to trigger, no review
-
-The trigger session decides per task via the `review` parameter in `task_create()`.
-
-## Path Locking
-
-Tasks with a `path` parameter lock that directory and all subdirectories during execution.
-
-### Lock Acquisition
-
-```
-acquire-lock.ts <task_id> <path> [pid]
+```typescript
+path_lock_status()
+// → { locks: [{ locked_path: "/home/atlas/projects/myapp/", pid: 1234, ... }] }
 ```
 
-Checks for bidirectional conflicts:
-- New path is under an existing lock (ancestor locked)
-- Existing lock is under the new path (descendant locked)
+## Conflict Detection
 
-If no conflict, the lock is stored in `path_locks` table.
+Conflicts are checked bidirectionally:
 
-### Lock Release
+- A new lock on `/home/atlas/projects/app` is blocked if `/home/atlas/projects` is already locked (ancestor conflict)
+- A new lock on `/home/atlas/projects` is blocked if `/home/atlas/projects/app` is already locked (descendant conflict)
 
-```
-release-lock.ts <task_id>
-```
+Tasks without file modifications don't need a lock and can always run in parallel.
 
-Removes the lock when the task completes (or fails).
+## Crash Recovery
 
-### Crash Recovery
+Locks are keyed by PID. The `stop.sh` hook releases any locks held by the current session's PID when the session ends (normally or on crash). On container restart, `entrypoint.sh` clears all stale path locks from the database.
 
-On watcher startup:
-1. Check all `path_locks` entries for running PIDs
-2. If PID is dead → delete lock, reset task to `pending`
-3. Dispatch any pending tasks
-
-## Task States
+## Parallel Execution Pattern
 
 ```
-pending → processing → reviewing → done
-              │  ↑          │
-              │  └──────────┤ (retry on transient failure)
-              │             │
-              └─────────────┴──→ failed (after max retries)
-                                    │
-pending ← (crash recovery) ─────────┘
+trigger_session:
+  path_lock("/home/atlas/projects/frontend")
+  path_lock("/home/atlas/projects/backend")
+  Agent(team_name="feature-x", name="frontend-dev", ...)
+  Agent(team_name="feature-x", name="backend-dev", ...)
+  ↓ (teammates work in parallel on non-overlapping paths)
+  path_unlock("/home/atlas/projects/frontend")
+  path_unlock("/home/atlas/projects/backend")
 ```
 
-| State | Meaning |
-|-------|---------|
-| pending | Waiting to be dispatched |
-| processing | Worker is executing (or waiting for retry backoff) |
-| reviewing | Review agent is checking |
-| done | Completed successfully |
-| failed | Worker or reviewer crashed after max retries |
-| cancelled | Cancelled by trigger |
+## Source
 
-## Error Handling
-
-- **Transient worker failure** (rate limit, API timeout): Retried with exponential backoff (30s, 60s, 120s) up to `max_task_retries` (default: 3). Task stays `processing` during backoff, then resets to `pending` for re-dispatch.
-- **Permanent worker failure** (max retries exceeded): Task marked `failed`, lock released, trigger woken with error
-- **Reviewer crash**: Worker result accepted as-is (graceful degradation)
-- **Task-runner crash**: Watcher startup recovery cleans up stale locks and resets tasks
-
-## Configuration
-
-In `config.yml`:
-
-```yaml
-workers:
-  max_parallel: 3          # Maximum concurrent task-runners
-  max_review_iterations: 5  # Max worker↔reviewer rounds per task
-  max_task_retries: 3      # Max retries on transient failures
-```
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `app/task-runner.sh` | Task lifecycle orchestrator |
-| `app/inbox-mcp/update-task.ts` | CLI: parameterized task status/result updates |
-| `app/inbox-mcp/locks.ts` | Path locking module |
-| `app/inbox-mcp/acquire-lock.ts` | CLI: acquire path lock |
-| `app/inbox-mcp/release-lock.ts` | CLI: release path lock |
-| `app/inbox-mcp/wake-trigger.ts` | CLI: wake trigger session |
-| `app/prompts/worker-ephemeral-prompt.md` | Ephemeral worker prompt |
-| `app/prompts/reviewer-system-prompt.md` | Review agent prompt |
-| `app/.mcp.json` | Base MCP config (Playwright) — shared by all modes |
-| `/tmp/task-runner-<id>.pid` | PID file for crash recovery |
-| `/atlas/logs/task-runner-<id>.log` | Per-task log |
+- `app/atlas-mcp/index.ts` — `path_lock`, `path_unlock`, `path_lock_status` tool implementations
+- `app/atlas-mcp/locks.ts` — Path locking logic and conflict detection
+- `app/hooks/stop.sh` — PID-based lock cleanup on session exit
+- `app/entrypoint.sh` — Clears all locks on container start

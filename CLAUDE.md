@@ -6,19 +6,18 @@ Containerized autonomous agent system powered by Claude Code. Made to enable com
 
 - **Event-driven**: No polling, no wasted compute — sleeps until work arrives
 - **Multi-channel**: Signal, Email, Web, Webhooks — unified inbox via trigger sessions
-- **Autonomous**: Triggers handle events, escalate to worker when needed
+- **Autonomous**: Triggers handle events, delegate to agent teammates when needed
 - **Persistent**: Memory, identity, and sessions survive restarts of container
 
 ## Overview
 
 ```
-Trigger Event → task_create() → .wake-task-<id> → watcher dispatches
+Trigger Event → trigger.sh → claude-atlas → Trigger Session (PM role)
                                                        ↓
-                                          task-runner.sh (per task)
-                                          ├─ Ephemeral Worker → JSON result
-                                          └─ Review Agent → approve/revise loop
+                                          Simple: respond directly via CLI tools
+                                          Complex: TeamCreate + path_lock + Agent(teammates)
                                                        ↓
-                                          .wake-<trigger>-<id> → Trigger resumes
+                                          Teammates work in parallel on non-overlapping paths
 ```
 
 ## Tech Stack
@@ -34,10 +33,10 @@ Trigger Event → task_create() → .wake-task-<id> → watcher dispatches
 ## Documentation
 
 - [docs/Architecture.md](docs/Architecture.md) — Component overview
-- [docs/inbox-mcp.md](docs/inbox-mcp.md) — Inbox system and MCP tools
-- [docs/task-runner.md](docs/task-runner.md) — Task-runner lifecycle, review loop, path locking
+- [docs/inbox-mcp.md](docs/inbox-mcp.md) — Database schema and MCP tools (path locking)
+- [docs/task-runner.md](docs/task-runner.md) — Path locking for parallel agent work
 - [docs/hooks.md](docs/hooks.md) — Lifecycle hooks
-- [docs/watcher.md](docs/watcher.md) — Event-driven wake system
+- [docs/watcher.md](docs/watcher.md) — Trigger concurrency and IPC injection
 - [docs/qmd-memory.md](docs/qmd-memory.md) — Memory and search
 - [docs/web-ui.md](docs/web-ui.md) — Dashboard and API
 - [docs/directory-structure.md](docs/directory-structure.md) — Filesystem layout
