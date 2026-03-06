@@ -68,6 +68,17 @@ SESSION_MODE=$(echo "$ROW" | python3 -c "import sys,json; print(json.loads(sys.s
 # Session key: 3rd argument, defaults to "_default" for persistent triggers
 SESSION_KEY="${3:-_default}"
 
+# Prevent concurrent trigger.sh executions for the same trigger+key pair.
+# Without this, two messages arriving seconds apart both find no IPC socket
+# (session hasn't started yet) and both spawn --resume, causing duplicate responses.
+FLOCK_FILE="/tmp/.trigger-${TRIGGER_NAME}-${SESSION_KEY//[^a-zA-Z0-9_]/_}.flock"
+exec {LOCK_FD}>"$FLOCK_FILE"
+if ! flock -w 30 "$LOCK_FD"; then
+  echo "[$(date)] Trigger $TRIGGER_NAME (key=$SESSION_KEY) locked by another instance — skipping" | tee -a "$LOG"
+  exit 0
+fi
+# Lock held for duration of script; released automatically on exit
+
 # Fallback: load prompt from workspace file
 if [ -z "$PROMPT" ]; then
   PROMPT_FILE="$WORKSPACE/triggers/${TRIGGER_NAME}/prompt.md"
