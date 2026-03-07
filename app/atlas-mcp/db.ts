@@ -58,6 +58,21 @@ function createTables(database: Database): void {
     );
   `);
 
+  // Reminders: one-time scheduled events that fire a Claude session
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      fire_at TEXT NOT NULL,
+      channel TEXT DEFAULT 'internal',
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','fired','cancelled')),
+      created_at TEXT DEFAULT (datetime('now')),
+      fired_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_reminders_status_fire ON reminders(status, fire_at);
+  `);
+
   // Session metrics: per-invocation cost and token tracking
   database.exec(`
     CREATE TABLE IF NOT EXISTS session_metrics (
