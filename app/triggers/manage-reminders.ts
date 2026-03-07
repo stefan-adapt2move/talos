@@ -247,7 +247,7 @@ switch (command) {
             ATLAS_REMINDER_ID: String(reminder.id),
             ATLAS_REMINDER_TITLE: reminder.title,
           },
-          stdin: "null",
+          stdin: "ignore",
           stdout: "inherit",
           stderr: "inherit",
         }
