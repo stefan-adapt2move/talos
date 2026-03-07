@@ -50,3 +50,6 @@ failure_handling:
   backoff_initial_seconds: 30
   backoff_max_seconds: 900 # Cap at 15 minutes
   notification_threshold_minutes: 30
+
+webhook:
+  relay_url: "https://webhooks.unclutter.pro"  # Base URL for webhook relay (smee.io compatible)
