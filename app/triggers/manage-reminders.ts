@@ -235,7 +235,9 @@ switch (command) {
       ).run(reminder.id);
 
       const channel = reminder.channel || "internal";
-      const promptText = reminder.prompt;
+
+      // Wrap the user's prompt with reminder context and memory instructions
+      const promptText = `[Reminder #${reminder.id}: "${reminder.title}"]\n\n${reminder.prompt}\n\nIMPORTANT: After completing this task, write a brief note to today's journal (memory/journal/) documenting what you did and any messages you sent. This ensures other sessions (e.g. Signal) have context if the user replies.`;
 
       // Spawn claude-atlas in the background (don't await — let them run in parallel)
       const proc = Bun.spawn(
