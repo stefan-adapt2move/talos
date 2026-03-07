@@ -20,9 +20,16 @@ Scheduled execution using standard cron syntax.
 | `0 6 * * *` | Daily at 6:00 |
 
 ### Webhook
-HTTP endpoints at `/api/webhook/<trigger-name>`. External services POST data here.
+Webhooks connect external services to Atlas via a self-hosted relay (smee.io). No ports need to be opened — Atlas connects outbound via SSE.
+
+**How it works:**
+1. `trigger create --type=webhook` generates a unique channel and returns the relay URL
+2. Register that URL with your external service (GitHub, Stripe, etc.)
+3. The webhook SSE listener connects outbound and fires triggers when events arrive
+
 - Payload replaces `{{payload}}` in the prompt file
-- Optional authentication via `X-Webhook-Secret` header
+- Optional authentication via `X-Webhook-Secret` header or middleware filter
+- Relay URL configurable in `config.yml` (default: `webhooks.unclutter.pro`)
 
 ### Manual
 No schedule, no endpoint. Fired via the web-ui "Run" button or by request.
@@ -74,10 +81,18 @@ trigger create \
   --description="Post-deploy notification"
 ```
 
+Output:
+```
+Created trigger 'deploy-hook' (webhook)
+Webhook URL: https://webhooks.unclutter.pro/deploy-hook-a1b2c3d4e5f6
+Channel ID: deploy-hook-a1b2c3d4e5f6
+Register this URL with your webhook provider
+```
+
 Prompt file: `~/triggers/deploy-hook/prompt.md`
 Use `{{payload}}` in prompt for the webhook body.
 
-The endpoint `http://<host>:8080/api/webhook/deploy-hook` is live immediately. External services POST to this URL with the optional `X-Webhook-Secret` header.
+The SSE listener picks up new webhook triggers automatically (within 60s). The relay URL is returned by the CLI — register it with your external service.
 
 ### Manual Trigger
 
@@ -104,6 +119,78 @@ Example `~/triggers/daily-report/prompt.md`:
 Check the inbox for any unread messages and summarize activity from the past 24 hours.
 Escalate anything urgent to the main session via task_create.
 ```
+
+## Middleware Filter Scripts
+
+Any trigger can have an optional filter script that decides whether to fire. Place a `filter.sh` in the trigger directory:
+
+```
+~/triggers/<name>/filter.sh
+```
+
+The filter receives the event payload as JSON on stdin. Exit 0 = fire, non-zero = skip.
+
+**Works for ALL trigger types** — webhooks, cron, manual.
+
+### Examples
+
+**Only fire on GitHub push to main:**
+```bash
+#!/bin/bash
+# ~/triggers/github-deploy/filter.sh
+REF=$(cat | jq -r '.body.ref // empty')
+[ "$REF" = "refs/heads/main" ] && exit 0
+exit 1
+```
+
+**Only fire on weekdays:**
+```bash
+#!/bin/bash
+# ~/triggers/daily-report/filter.sh
+DOW=$(date +%u)  # 1=Monday, 7=Sunday
+[ "$DOW" -le 5 ] && exit 0
+exit 1
+```
+
+**Validate webhook signature (e.g. GitHub):**
+```bash
+#!/bin/bash
+# ~/triggers/github-hook/filter.sh
+INPUT=$(cat)
+SIG=$(echo "$INPUT" | jq -r '.headers["x-hub-signature-256"] // empty')
+BODY=$(echo "$INPUT" | jq -r '.body | tostring')
+SECRET="your-webhook-secret"
+EXPECTED="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
+[ "$SIG" = "$EXPECTED" ] && exit 0
+exit 1
+```
+
+## Webhook Relay Configuration
+
+Configure the relay base URL in `~/config.yml`:
+
+```yaml
+webhook:
+  relay_url: "https://webhooks.unclutter.pro"
+```
+
+Default: `webhooks.unclutter.pro` (community-hosted instance).
+
+### Starting the Webhook Listener
+
+Add to `~/supervisor.d/webhook-listener.conf`:
+```ini
+[program:webhook-listener]
+command=/atlas/app/bin/webhook-listener
+autostart=true
+autorestart=true
+stdout_logfile=/atlas/logs/webhook-sse.log
+stderr_logfile=/atlas/logs/webhook-sse-error.log
+```
+
+Then: `supervisorctl reread && supervisorctl update`
+
+The listener auto-discovers webhook triggers from the DB and reconnects on failure. It reconciles every 60 seconds to pick up new/removed/disabled triggers.
 
 ## Adding Custom Background Services
 
