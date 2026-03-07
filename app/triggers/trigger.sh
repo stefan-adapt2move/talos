@@ -180,6 +180,15 @@ if ! flock -w 60 "$LOCK_FD"; then
   exit 0
 fi
 
+# Re-read session from DB after lock (another trigger may have created one while we waited)
+if [ "$SESSION_MODE" = "persistent" ] && [ -z "${EXISTING_SESSION:-}" ]; then
+  EXISTING_SESSION=$(sqlite3 "$DB" \
+    "SELECT session_id FROM trigger_sessions WHERE trigger_name='${TRIGGER_NAME//\'/\'\'}' AND session_key='${SESSION_KEY//\'/\'\'}' LIMIT 1;" 2>/dev/null || echo "")
+  if [ -n "$EXISTING_SESSION" ]; then
+    echo "[$(date)] Session appeared after lock wait: $EXISTING_SESSION (key=$SESSION_KEY)" | tee -a "$LOG"
+  fi
+fi
+
 # Re-check IPC socket after acquiring lock (first instance may have started the session)
 if [ "$SESSION_MODE" = "persistent" ] && [ -n "${EXISTING_SESSION:-}" ]; then
   SOCKET="/tmp/claudec-${EXISTING_SESSION}.sock"
@@ -235,9 +244,12 @@ TRIGGER_OUT=$(mktemp /tmp/trigger-out-XXXXXX.json)
 
 # Unset CLAUDECODE so spawning a trigger session while a worker is running doesn't fail
 # with "Claude Code cannot be launched inside another Claude Code session"
+# Hard timeout as a last-resort safety net (session-watchdog handles normal stale detection)
+TRIGGER_TIMEOUT="${TRIGGER_TIMEOUT:-3600}"
 TRIGGER_EXIT=0
 ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
   env -u CLAUDECODE \
+  timeout "$TRIGGER_TIMEOUT" \
   claude-atlas --mode trigger "${CLAUDE_ARGS[@]}" --output-format json "$PROMPT" < /dev/null > "$TRIGGER_OUT" 2>>"$LOG" || TRIGGER_EXIT=$?
 
 # If resume failed, retry as fresh session (stale/corrupted session that wasn't caught above)
@@ -247,6 +259,7 @@ if [ "$TRIGGER_EXIT" -ne 0 ] && [ -n "${EXISTING_SESSION:-}" ]; then
   TRIGGER_EXIT=0
   ATLAS_TRIGGER="$TRIGGER_NAME" ATLAS_TRIGGER_CHANNEL="$CHANNEL" ATLAS_TRIGGER_SESSION_KEY="$SESSION_KEY" \
     env -u CLAUDECODE \
+    timeout "$TRIGGER_TIMEOUT" \
     claude-atlas --mode trigger "${CLAUDE_BASE_ARGS[@]}" --output-format json "$PROMPT" < /dev/null > "$TRIGGER_OUT" 2>>"$LOG" || TRIGGER_EXIT=$?
 fi
 
