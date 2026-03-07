@@ -142,16 +142,42 @@ def get_email_db(config):
 
 # --- Thread helpers ---
 
-def extract_thread_id(msg):
-    """Extract thread identifier from email headers."""
-    references = msg.get("References", "").strip()
-    if references:
-        first_ref = references.split()[0]
-        return sanitize_thread_id(first_ref)
+def extract_thread_id(msg, db=None):
+    """Extract thread identifier from email headers.
 
+    If db is provided, looks up existing threads by referenced message IDs
+    to prevent conversation splitting from incomplete References headers.
+    Apple Mail sometimes sends only the last reply's Message-ID in References
+    rather than the full chain, which would otherwise create a new thread_id.
+    """
+    references = msg.get("References", "").strip()
     in_reply_to = msg.get("In-Reply-To", "").strip()
-    if in_reply_to:
-        return sanitize_thread_id(in_reply_to)
+
+    # Collect all referenced message IDs
+    ref_ids = []
+    if references:
+        ref_ids.extend(references.split())
+    if in_reply_to and in_reply_to not in ref_ids:
+        ref_ids.append(in_reply_to)
+
+    # Look up existing threads by any referenced message ID
+    if db and ref_ids:
+        # Search for both raw (<...>) and stripped forms
+        search_ids = []
+        for r in ref_ids:
+            search_ids.append(r)
+            search_ids.append(r.strip("<>"))
+        placeholders = ",".join("?" * len(search_ids))
+        row = db.execute(
+            f"SELECT thread_id FROM emails WHERE message_id IN ({placeholders}) ORDER BY created_at ASC LIMIT 1",
+            search_ids,
+        ).fetchone()
+        if row:
+            return row[0]
+
+    # Fallback: derive from headers (original behavior)
+    if ref_ids:
+        return sanitize_thread_id(ref_ids[0])
 
     message_id = msg.get("Message-ID", "").strip()
     return sanitize_thread_id(message_id) if message_id else f"email-{int(time.time())}"
@@ -415,7 +441,7 @@ def cmd_poll(config, once=False):
             sender = msg.get("From", "unknown")
             subject = msg.get("Subject", "(no subject)")
             body = get_body(msg)
-            thread_id = extract_thread_id(msg)
+            thread_id = extract_thread_id(msg, db)
             message_id_hdr = msg.get("Message-ID", "").strip()
 
             if not is_whitelisted(sender, config["whitelist"]):
