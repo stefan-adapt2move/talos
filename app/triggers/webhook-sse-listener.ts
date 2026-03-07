@@ -29,11 +29,6 @@ const HOME = process.env.HOME ?? "";
 function log(msg: string): void {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   process.stdout.write(line);
-  try {
-    appendFileSync(LOG_PATH, line);
-  } catch {
-    // Log file may not be writable in dev — ignore
-  }
 }
 
 // ------- Config -------
@@ -136,9 +131,10 @@ async function fireTrigger(
 
 interface SmeeEvent {
   body: unknown;
-  headers: Record<string, string>;
   query: Record<string, string>;
   timestamp: number | string;
+  // smee.io flattens HTTP headers into top-level keys alongside body/query/timestamp
+  [key: string]: unknown;
 }
 
 /**
@@ -264,9 +260,19 @@ async function connectToChannel(
 async function handleSseEvent(triggerName: string, event: SmeeEvent): Promise<void> {
   log(`SSE event received for trigger '${triggerName}' (timestamp=${event.timestamp})`);
 
+  // smee.io flattens HTTP headers into top-level keys alongside body/query/timestamp.
+  // Extract them back into a headers object.
+  const reservedKeys = new Set(["body", "query", "timestamp"]);
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (!reservedKeys.has(key) && typeof value === "string") {
+      headers[key.toLowerCase()] = value;
+    }
+  }
+
   const payloadJson = JSON.stringify({
     body: event.body,
-    headers: event.headers,
+    headers,
     query: event.query,
     timestamp: event.timestamp,
   });
