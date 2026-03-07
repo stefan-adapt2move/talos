@@ -1,6 +1,9 @@
 # Atlas Crontab (supercronic)
 # Timezone via TZ env variable in the container
 
+# Check for due reminders every minute
+* * * * *  bun /atlas/app/triggers/manage-reminders.ts check >> /atlas/logs/reminders.log 2>&1
+
 # Daily session cleanup at 06:00 (special: uses --max-turns and session resume)
 0 6 * * *  /atlas/app/triggers/cron/daily-cleanup.sh
 
