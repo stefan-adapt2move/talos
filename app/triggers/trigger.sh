@@ -158,6 +158,19 @@ s.close()
   fi
 fi
 
+# --- Middleware filter: optional filter.sh that can veto the trigger ---
+# Applies to ALL trigger types (webhook, cron, manual).
+# The filter receives $PAYLOAD as JSON on stdin.
+# Exit 0 = proceed, non-zero = skip this invocation.
+FILTER_SCRIPT="$WORKSPACE/triggers/${TRIGGER_NAME}/filter.sh"
+if [ -f "$FILTER_SCRIPT" ]; then
+  FILTER_INPUT="${PAYLOAD:-{\}}"
+  if ! echo "$FILTER_INPUT" | bash "$FILTER_SCRIPT" >/dev/null 2>&1; then
+    echo "[$(date)] Filtered by middleware: $TRIGGER_NAME (key=$SESSION_KEY)" | tee -a "$LOG"
+    exit 0
+  fi
+fi
+
 # --- Acquire lock before spawning to prevent duplicate sessions ---
 # Only the spawn/resume path needs locking. IPC injection (above) is lock-free.
 FLOCK_FILE="/tmp/.trigger-${TRIGGER_NAME}-${SESSION_KEY//[^a-zA-Z0-9_]/_}.flock"

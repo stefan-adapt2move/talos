@@ -38,6 +38,7 @@ function createTables(database: Database): void {
       channel TEXT DEFAULT 'internal',
       schedule TEXT,
       webhook_secret TEXT,
+      webhook_channel TEXT,
       prompt TEXT DEFAULT '',
       session_mode TEXT DEFAULT 'ephemeral' CHECK(session_mode IN ('ephemeral','persistent')),
       enabled INTEGER DEFAULT 1,
@@ -192,6 +193,7 @@ function migrateSchema(database: Database): void {
         channel TEXT DEFAULT 'internal',
         schedule TEXT,
         webhook_secret TEXT,
+        webhook_channel TEXT,
         prompt TEXT DEFAULT '',
         session_mode TEXT DEFAULT 'ephemeral' CHECK(session_mode IN ('ephemeral','persistent')),
         enabled INTEGER DEFAULT 1,
@@ -205,6 +207,14 @@ function migrateSchema(database: Database): void {
   // Add session_mode column if missing (upgrade from pre-session triggers)
   if (trigInfo && trigInfo.sql.includes("name TEXT") && !trigInfo.sql.includes("session_mode")) {
     database.exec(`ALTER TABLE triggers ADD COLUMN session_mode TEXT DEFAULT 'ephemeral'`);
+  }
+
+  // Add webhook_channel column if missing (upgrade from pre-webhook-relay triggers)
+  const trigInfoForWebhook = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='triggers'"
+  ).get() as { sql: string } | undefined;
+  if (trigInfoForWebhook?.sql?.includes("name TEXT") && !trigInfoForWebhook.sql.includes("webhook_channel")) {
+    database.exec(`ALTER TABLE triggers ADD COLUMN webhook_channel TEXT`);
   }
 
   // Drop session_id from triggers if present (moved to trigger_sessions table)
@@ -221,6 +231,7 @@ function migrateSchema(database: Database): void {
           channel TEXT DEFAULT 'internal',
           schedule TEXT,
           webhook_secret TEXT,
+          webhook_channel TEXT,
           prompt TEXT DEFAULT '',
           session_mode TEXT DEFAULT 'ephemeral' CHECK(session_mode IN ('ephemeral','persistent')),
           enabled INTEGER DEFAULT 1,
@@ -228,8 +239,8 @@ function migrateSchema(database: Database): void {
           run_count INTEGER DEFAULT 0,
           created_at TEXT DEFAULT (datetime('now'))
         );
-        INSERT OR IGNORE INTO _triggers_new (id, name, type, description, channel, schedule, webhook_secret, prompt, session_mode, enabled, last_run, run_count, created_at)
-          SELECT id, name, type, description, channel, schedule, webhook_secret, prompt, COALESCE(session_mode, 'ephemeral'), enabled, last_run, run_count, created_at FROM triggers;
+        INSERT OR IGNORE INTO _triggers_new (id, name, type, description, channel, schedule, webhook_secret, webhook_channel, prompt, session_mode, enabled, last_run, run_count, created_at)
+          SELECT id, name, type, description, channel, schedule, webhook_secret, NULL, prompt, COALESCE(session_mode, 'ephemeral'), enabled, last_run, run_count, created_at FROM triggers;
         DROP TABLE triggers;
         ALTER TABLE _triggers_new RENAME TO triggers;
       `);

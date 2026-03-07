@@ -1,0 +1,12 @@
+#!/bin/bash
+# Webhook SSE listener daemon
+# Connects to the smee.io-compatible relay and fires webhook triggers on events.
+#
+# supervisord config:
+#   [program:webhook-listener]
+#   command=/atlas/app/bin/webhook-listener
+#   autostart=true
+#   autorestart=true
+#   stdout_logfile=/atlas/logs/webhook-sse.log
+#   stderr_logfile=/atlas/logs/webhook-sse-error.log
+exec bun /atlas/app/triggers/webhook-sse-listener.ts "$@"
