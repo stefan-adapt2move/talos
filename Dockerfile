@@ -124,6 +124,10 @@ RUN bun install
 WORKDIR /atlas/app/triggers
 RUN bun install
 
+# Install WhatsApp daemon dependencies
+WORKDIR /atlas/app/integrations/whatsapp
+RUN bun install
+
 # Install Web-UI dependencies
 WORKDIR /atlas/app/web-ui
 RUN bun install

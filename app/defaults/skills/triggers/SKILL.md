@@ -1,6 +1,6 @@
 ---
 name: triggers
-description: How to create and manage triggers via the CLI. Covers cron, webhook, manual, Signal and Email integration.
+description: How to create and manage triggers via the CLI. Covers cron, webhook, manual, Signal, WhatsApp and Email integration.
 ---
 
 # Triggers
@@ -39,7 +39,7 @@ No schedule, no endpoint. Fired via the web-ui "Run" button or by request.
 | Mode | Behavior | Use Case |
 |------|----------|----------|
 | `ephemeral` | New session per run | Cron jobs, one-off webhooks |
-| `persistent` | Resume by session key | Signal contacts, email threads |
+| `persistent` | Resume by session key | Signal/WhatsApp contacts, email threads |
 
 Persistent triggers maintain separate sessions per key (e.g., per contact, per thread). If no key is provided, a single default session is used per trigger.
 
@@ -316,6 +316,106 @@ signal send +491701234567 "Hello!"
 signal contacts
 signal history +491701234567
 ```
+
+## WhatsApp Integration Setup
+
+WhatsApp uses [Baileys](https://github.com/WhiskeySockets/Baileys) — an unofficial WhatsApp Web API that connects via WebSocket. A single daemon process handles both incoming messages and outgoing sends.
+
+> **Warning:** Baileys is unofficial. WhatsApp can ban accounts using third-party clients. Use a **dedicated phone number**, not your main one. Avoid bulk messaging.
+
+**Step 1: Configure `workspace/config.yml`** (optional)
+
+```yaml
+whatsapp:
+  whitelist: []   # empty = accept all; or ["+491701234567", "+491709876543"]
+  history_turns: 20
+```
+
+No phone number config needed — Baileys derives it from the linked device session.
+
+**Step 2: Create the trigger**
+
+The `whatsapp-chat` trigger is auto-created by `init.sh`. If it's missing:
+
+```bash
+trigger create \
+  --name=whatsapp-chat \
+  --type=webhook \
+  --session-mode=persistent \
+  --channel=whatsapp \
+  --description="WhatsApp messenger conversations"
+```
+
+Write `~/triggers/whatsapp-chat/prompt.md`:
+```
+<message from="{{sender}}">
+{{payload}}
+</message>
+
+Please respond directly using `whatsapp send "{{sender}}" "..."`.
+```
+
+**Step 3: Add supervisor service**
+
+Create `~/supervisor.d/whatsapp.conf`:
+```ini
+[program:whatsapp-daemon]
+command=bun run /atlas/app/integrations/whatsapp/whatsapp-daemon.ts
+autostart=true
+autorestart=true
+stdout_logfile=/atlas/logs/whatsapp-daemon.log
+stderr_logfile=/atlas/logs/whatsapp-daemon-error.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=3
+stderr_logfile_maxbytes=1MB
+stderr_logfile_backups=1
+```
+
+Activate:
+```bash
+supervisorctl reread && supervisorctl update
+```
+
+**Step 4: Pair via QR code**
+
+On first start, the daemon prints a QR code to stdout/logs:
+```bash
+tail -f /atlas/logs/whatsapp-daemon.log
+```
+
+Scan the QR code with your WhatsApp mobile app:
+**Settings → Linked Devices → Link a Device**
+
+Auth credentials persist to `~/.local/share/whatsapp/auth/` — subsequent restarts reconnect automatically. If the linked device is revoked (phone offline 14+ days), delete the auth directory and re-scan.
+
+**Architecture:**
+
+Unlike Signal (which needs two processes — signal-cli daemon + listener), WhatsApp uses a **single daemon** (`whatsapp-daemon.ts`) that:
+
+1. Connects to WhatsApp via Baileys WebSocket
+2. Listens for incoming messages → spawns `whatsapp incoming` per message
+3. Exposes a UNIX socket (`/tmp/whatsapp.sock`) for outgoing sends (JSON-RPC, same protocol as signal-cli)
+
+Voice messages are automatically downloaded and transcribed via the same STT pipeline as Signal. Outgoing messages are rate-limited (1.5s between sends) to reduce ban risk.
+
+**CLI tools available in trigger sessions:**
+
+```bash
+whatsapp send "+491701234567" "Hello!"
+whatsapp send "+491701234567" "See attached" --attach /path/to/file.pdf
+whatsapp contacts
+whatsapp history "+491701234567"
+```
+
+**Data storage:**
+
+| Item | Location |
+|------|----------|
+| Auth credentials | `~/.local/share/whatsapp/auth/` |
+| Downloaded attachments | `~/.local/share/whatsapp/attachments/` |
+| Contact/message DB | `~/.index/whatsapp/whatsapp.db` |
+| Daemon logs | `/atlas/logs/whatsapp-daemon.log` |
+| Send socket | `/tmp/whatsapp.sock` |
 
 ## Email Integration Setup
 

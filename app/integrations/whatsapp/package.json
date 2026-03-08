@@ -1,0 +1,9 @@
+{
+  "name": "atlas-whatsapp-daemon",
+  "private": true,
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "qrcode-terminal": "^0.12.0",
+    "pino": "^9.0.0"
+  }
+}

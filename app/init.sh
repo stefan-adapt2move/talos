@@ -124,6 +124,10 @@ fi
 sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, prompt, session_mode) VALUES (
   'web-chat', 'manual', 'Web UI chat message handler', 'web', '', 'persistent');" || echo "  ⚠ web-chat trigger insert failed (non-fatal)"
 
+# Ensure whatsapp-chat trigger exists (idempotent migration)
+sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, prompt, session_mode) VALUES (
+  'whatsapp-chat', 'webhook', 'WhatsApp messenger conversations', 'whatsapp', '', 'persistent');" || echo "  ⚠ whatsapp-chat trigger insert failed (non-fatal)"
+
 # Create web-chat spawn prompt
 mkdir -p "$WORKSPACE/triggers/web-chat"
 if [ ! -f "$WORKSPACE/triggers/web-chat/prompt.md" ]; then
