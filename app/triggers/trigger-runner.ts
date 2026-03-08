@@ -65,6 +65,22 @@ const DB_PATH = `${HOME}/.index/atlas.db`;
 const CLAUDE_JSON = `${HOME}/.claude.json`;
 const WORKSPACE = HOME;
 
+// Resolve path to Claude Code executable for the SDK.
+// In compiled Bun binaries, import.meta.url points to a virtual FS (/$bunfs/...),
+// so the SDK cannot auto-resolve cli.js. We resolve it explicitly here.
+function resolveClaudeCodePath(): string | undefined {
+  // 1. SDK's bundled cli.js (preferred — version-matched)
+  const sdkCli = `${APP_DIR}/triggers/node_modules/@anthropic-ai/claude-agent-sdk/cli.js`;
+  if (existsSync(sdkCli)) return sdkCli;
+  // 2. Native binary installed globally
+  const nativeBin = "/usr/local/bin/claude";
+  if (existsSync(nativeBin)) return nativeBin;
+  // 3. Let the SDK resolve it (works when not compiled)
+  return undefined;
+}
+
+const CLAUDE_CODE_PATH = resolveClaudeCodePath();
+
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
@@ -505,6 +521,7 @@ export async function runDirect(
     allowDangerouslySkipPermissions: true,
     cwd: HOME,
     ...(resumeId ? { resume: resumeId } : { persistSession: false }),
+    ...(CLAUDE_CODE_PATH ? { pathToClaudeCodeExecutable: CLAUDE_CODE_PATH } : {}),
   };
 
   const q = query({ prompt, options: queryOptions });
@@ -787,6 +804,7 @@ export async function main(): Promise<void> {
       cwd: HOME,
       ...(resumeId ? { resume: resumeId } : {}),
       ...(sessionMode === "ephemeral" ? { persistSession: false } : {}),
+      ...(CLAUDE_CODE_PATH ? { pathToClaudeCodeExecutable: CLAUDE_CODE_PATH } : {}),
     };
 
     const q = query({ prompt, options });
