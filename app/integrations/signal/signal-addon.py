@@ -140,12 +140,52 @@ def _resolve_attachment_path(attachment_id: str) -> str | None:
     return None
 
 
+def _convert_to_wav(file_path: str) -> str | None:
+    """Convert audio file to WAV using ffmpeg. Returns path to temp WAV file."""
+    import tempfile
+    wav_path = tempfile.mktemp(suffix=".wav")
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-i", file_path, "-ar", "16000", "-ac", "1", "-y", wav_path],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode == 0 and os.path.exists(wav_path):
+            return wav_path
+        print(f"[{datetime.now()}] ffmpeg conversion failed: {result.stderr.decode()[:200]}", file=sys.stderr)
+    except Exception as e:
+        print(f"[{datetime.now()}] ffmpeg error: {e}", file=sys.stderr)
+    return None
+
+
+# Formats that Parakeet supports natively (no conversion needed)
+_NATIVE_STT_FORMATS = {".wav", ".flac", ".ogg"}
+
+
 def _transcribe_audio(file_path: str, stt_url: str) -> str | None:
     """Send audio file to STT endpoint (Whisper-compatible API) and return text."""
     import mimetypes
-    content_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
+
+    # Convert non-native formats (m4a, aac, mp3, webm, etc.) to WAV
+    ext = os.path.splitext(file_path)[1].lower()
+    converted_path = None
+    if ext not in _NATIVE_STT_FORMATS:
+        converted_path = _convert_to_wav(file_path)
+        if not converted_path:
+            return None
+        file_path = converted_path
+
+    content_type = mimetypes.guess_type(file_path)[0] or "audio/wav"
     filename = os.path.basename(file_path)
 
+    try:
+        return _do_stt_request(file_path, filename, content_type, stt_url)
+    finally:
+        if converted_path and os.path.exists(converted_path):
+            os.unlink(converted_path)
+
+
+def _do_stt_request(file_path: str, filename: str, content_type: str, stt_url: str) -> str | None:
+    """Build and send the multipart STT request."""
     # Build multipart/form-data request (stdlib only, no requests dependency)
     boundary = "----AtlasSTTBoundary"
     body = b""
