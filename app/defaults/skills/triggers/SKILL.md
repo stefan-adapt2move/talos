@@ -117,7 +117,7 @@ The `trigger create` command creates the directory automatically. Write the full
 Example `~/triggers/daily-report/prompt.md`:
 ```
 Check the inbox for any unread messages and summarize activity from the past 24 hours.
-Escalate anything urgent to the main session via task_create.
+Escalate anything urgent by delegating to an Agent teammate.
 ```
 
 ## Middleware Filter Scripts
@@ -362,7 +362,7 @@ New email received:
 
 The payload contains inbox_message_id and thread_id.
 Reply directly via CLI: email reply <thread_id> "message"
-Escalate complex tasks via task_create.
+Escalate complex tasks by delegating to an Agent teammate.
 ```
 
 **Step 4: Add polling**
@@ -412,23 +412,26 @@ The crontab at `~/crontab` has two sections:
 
 Never edit below the marker — those entries are managed by `sync-crontab.ts`. Poller entries and custom cron jobs go above it.
 
-## Escalation Pattern
+## Delegation Pattern
 
-Trigger sessions act as first-line filters:
+Trigger sessions act as project managers:
 
 1. **Simple events**: Handle directly with CLI tools (`signal send`, `email reply`) or MCP actions
-2. **Complex events**: Escalate to the main session via `task_create`
+2. **Complex events**: Delegate to agent teammates via `Agent(...)` or `TeamCreate` + `Agent(...)`
 
 ```
-# Single task escalation
-task_create(content="Review critical issue #42 from GitHub")
+# Quick task — single agent
+Agent(subagent_type="general-purpose", model="sonnet", prompt="Review critical issue #42 from GitHub")
 
-# Multi-task escalation
-task_create(content="Update CHANGELOG for v2.3.0")
-task_create(content="Run post-deploy smoke tests")
+# Complex multi-step work — agent team
+TeamCreate(team_name="deploy-review")
+path_lock("/home/atlas/projects/myapp")
+Agent(team_name="deploy-review", name="developer", model="sonnet", prompt="...")
+path_unlock("/home/atlas/projects/myapp")
+TeamDelete()
 ```
 
-The main session wakes automatically when new tasks arrive.
+See the trigger session's system prompt for the full delegation guidelines.
 
 ## Managing Triggers
 

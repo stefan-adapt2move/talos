@@ -62,11 +62,8 @@ home/
 │   │   └── <skill-name> →     # Symlinks to system or user skills
 │   └── agents/                # Merged agent directory (per-agent symlinks)
 │       └── <agent-name>.md →  # Symlinks to system or user agent specs
-├── .atlas-mcp/                 # MCP config for trigger sessions (generated)
-│   ├── system.json            # Atlas MCP + memory servers
-│   ├── atlas.json             # User-extended MCP servers
-│   ├── user.json              # Playwright + other user MCPs
-│   └── .merged.json           # Merged MCP config (generated on each trigger run)
+├── .atlas-mcp/                 # User MCP config (loaded by trigger sessions)
+│   └── user.json              # User MCP servers (Playwright, custom tools)
 ├── .index/                     # System state
 │   ├── atlas.db               # SQLite database (WAL mode)
 │   ├── .trigger-<name>.flock  # Per-trigger flock file (concurrency control)
