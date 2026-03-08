@@ -175,10 +175,13 @@ export function resolveModel(
 
 /**
  * Returns the MCP servers config object for the query() call.
- * Only stdio-based servers are included (URL-based cause silent exit issues).
+ * Merges system servers (work, memory) with user servers from:
+ *   1. ~/.atlas-mcp/user.json (Atlas-managed user config)
+ *   2. ~/.mcp.json (standard Claude MCP config)
+ * Only stdio-based servers are included (URL-based cause silent exit issues with --mcp-config).
  */
-export function getMcpServers(): Record<string, { command: string; args: string[] }> {
-  return {
+export function getMcpServers(): Record<string, Record<string, unknown>> {
+  const servers: Record<string, Record<string, unknown>> = {
     work: {
       command: "bun",
       args: ["run", "/atlas/app/atlas-mcp/index.ts"],
@@ -188,6 +191,32 @@ export function getMcpServers(): Record<string, { command: string; args: string[
       args: ["mcp"],
     },
   };
+
+  // Load user MCP servers from config files
+  const userConfigPaths = [
+    `${HOME}/.atlas-mcp/user.json`,
+    `${HOME}/.mcp.json`,
+  ];
+
+  for (const configPath of userConfigPaths) {
+    if (!existsSync(configPath)) continue;
+    try {
+      const raw = readFileSync(configPath, "utf8");
+      const config = JSON.parse(raw) as { mcpServers?: Record<string, Record<string, unknown>> };
+      if (!config.mcpServers) continue;
+      for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
+        // Skip URL-based servers (cause silent exit issues)
+        if ("url" in serverConfig) continue;
+        // Don't override system servers
+        if (name in servers) continue;
+        servers[name] = serverConfig;
+      }
+    } catch {
+      // Malformed JSON, skip
+    }
+  }
+
+  return servers;
 }
 
 /**

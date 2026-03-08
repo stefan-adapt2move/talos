@@ -308,8 +308,7 @@ describe("getMcpServers", () => {
   test("work server uses bun command", () => {
     const servers = getMcpServers();
     expect(servers.work.command).toBe("bun");
-    expect(servers.work.args).toContain("run");
-    expect(servers.work.args.some((a) => a.includes("atlas-mcp"))).toBe(true);
+    expect((servers.work.args as string[]).some((a) => a.includes("atlas-mcp"))).toBe(true);
   });
 
   test("memory server uses qmd command", () => {

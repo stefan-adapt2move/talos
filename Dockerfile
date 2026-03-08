@@ -9,11 +9,12 @@ WORKDIR /build
 COPY app/triggers/package.json app/triggers/bun.lock* ./
 RUN bun install --frozen-lockfile
 
-# Copy source and compile to native binary
-# Target is linux-x64; override with --build-arg if building for ARM.
-ARG BUN_TARGET=bun-linux-x64
+# Copy source and compile to native binary (auto-detect architecture)
 COPY app/triggers/trigger-runner.ts ./
-RUN bun build --compile --target=${BUN_TARGET} trigger-runner.ts --outfile trigger-runner
+RUN ARCH=$(uname -m) && \
+  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then BUN_TARGET="bun-linux-arm64"; \
+  else BUN_TARGET="bun-linux-x64"; fi && \
+  bun build --compile --target=${BUN_TARGET} trigger-runner.ts --outfile trigger-runner
 
 # ============================================================
 # Stage 2: Main application image
