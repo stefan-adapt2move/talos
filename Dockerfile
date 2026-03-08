@@ -95,6 +95,10 @@ RUN chmod +x /atlas/app/entrypoint.sh \
 WORKDIR /atlas/app/atlas-mcp
 RUN bun install
 
+# Install Trigger Runner dependencies
+WORKDIR /atlas/app/triggers
+RUN bun install
+
 # Install Web-UI dependencies
 WORKDIR /atlas/app/web-ui
 RUN bun install
