@@ -23,6 +23,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.request
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -30,10 +32,15 @@ from pathlib import Path
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
 ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
 SIGNAL_DB_DIR = os.environ["HOME"] + "/.index/signal"
+SIGNAL_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/signal-cli/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
 TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"
 TRIGGER_NAME = "signal-chat"
 DAEMON_SOCKET = "/tmp/signal.sock"
+
+# Audio MIME types that should be transcribed
+AUDIO_MIME_TYPES = {"audio/aac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav",
+                    "audio/x-m4a", "audio/m4a", "audio/webm", "audio/flac"}
 
 # signal-cli binary: check PATH first, then known workspace location
 def _find_signal_cli_bin():
@@ -51,18 +58,22 @@ def _find_signal_cli_bin():
 def load_config():
     """Load Signal config from config.yml, with env overrides."""
     cfg = {}
+    stt_cfg = {}
     if os.path.exists(CONFIG_PATH):
         try:
             import yaml
             with open(CONFIG_PATH) as f:
                 data = yaml.safe_load(f) or {}
             cfg = data.get("signal", {})
+            stt_cfg = data.get("stt", {})
         except ImportError:
             pass
 
     return {
         "number": os.environ.get("SIGNAL_NUMBER", cfg.get("number", "")),
         "whitelist": cfg.get("whitelist", []),
+        "stt_url": os.environ.get("STT_URL", stt_cfg.get("url", "http://stt:5092/v1/audio/transcriptions")),
+        "stt_enabled": stt_cfg.get("enabled", True),
     }
 
 
@@ -118,6 +129,103 @@ def update_contact(db, number, name=""):
     """, (number, name))
 
 
+# --- Speech-to-Text ---
+
+def _resolve_attachment_path(attachment_id: str) -> str | None:
+    """Find the attachment file downloaded by signal-cli."""
+    # signal-cli stores attachments as <id> or <id>.<ext> in attachments dir
+    for f in Path(SIGNAL_ATTACHMENTS_DIR).iterdir():
+        if f.stem == attachment_id or f.name == attachment_id:
+            return str(f)
+    return None
+
+
+def _transcribe_audio(file_path: str, stt_url: str) -> str | None:
+    """Send audio file to STT endpoint (Whisper-compatible API) and return text."""
+    import mimetypes
+    content_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
+    filename = os.path.basename(file_path)
+
+    # Build multipart/form-data request (stdlib only, no requests dependency)
+    boundary = "----AtlasSTTBoundary"
+    body = b""
+    # File part
+    body += f"--{boundary}\r\n".encode()
+    body += f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode()
+    body += f"Content-Type: {content_type}\r\n\r\n".encode()
+    with open(file_path, "rb") as f:
+        body += f.read()
+    body += b"\r\n"
+    # Model part (optional, for Whisper-compatible APIs)
+    body += f"--{boundary}\r\n".encode()
+    body += b'Content-Disposition: form-data; name="model"\r\n\r\n'
+    body += b"default\r\n"
+    body += f"--{boundary}--\r\n".encode()
+
+    req = urllib.request.Request(
+        stt_url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read())
+            return result.get("text", "").strip()
+    except (urllib.error.URLError, json.JSONDecodeError, OSError) as e:
+        print(f"[{datetime.now()}] STT error: {e}", file=sys.stderr)
+        return None
+
+
+def _process_attachments(attachments_json: str, config: dict) -> tuple[list[dict], str]:
+    """Process signal-cli attachments: resolve paths, transcribe audio.
+
+    Returns (attachment_metadata_list, transcription_text).
+    """
+    try:
+        attachments = json.loads(attachments_json)
+    except (json.JSONDecodeError, TypeError):
+        return [], ""
+
+    metadata = []
+    transcriptions = []
+
+    for att in attachments:
+        att_id = att.get("id", "")
+        content_type = att.get("contentType", att.get("content_type", ""))
+        size = att.get("size", 0)
+
+        # Resolve file path
+        file_path = _resolve_attachment_path(att_id) if att_id else None
+
+        entry = {
+            "id": att_id,
+            "content_type": content_type,
+            "size": size,
+            "path": file_path,
+        }
+
+        # Transcribe audio attachments
+        if file_path and content_type in AUDIO_MIME_TYPES and config.get("stt_enabled", True):
+            stt_url = config.get("stt_url", "")
+            if stt_url:
+                print(f"[{datetime.now()}] Transcribing audio: {file_path} ({content_type})")
+                text = _transcribe_audio(file_path, stt_url)
+                if text:
+                    entry["transcription"] = text
+                    transcriptions.append(text)
+                    print(f"[{datetime.now()}] Transcription: {text[:100]}...")
+                else:
+                    entry["transcription_error"] = "STT failed or unavailable"
+                    print(f"[{datetime.now()}] Transcription failed for {file_path}")
+
+        metadata.append(entry)
+
+    transcription_text = " ".join(transcriptions) if transcriptions else ""
+    return metadata, transcription_text
+
+
 # --- POLL command (signal-cli → incoming) ---
 
 def cmd_poll(config, once=False):
@@ -161,21 +269,38 @@ def cmd_poll(config, once=False):
         body = dm.get("message", "")
         name = envelope.get("sourceName", "")
         ts = str(envelope.get("timestamp", ""))
+        attachments = dm.get("attachments", [])
 
-        if not sender or not body:
+        if not sender or (not body and not attachments):
             continue
 
-        cmd_incoming(config, sender, body, name=name, timestamp=ts)
+        cmd_incoming(config, sender, body or "", name=name, timestamp=ts,
+                     attachments_json=json.dumps(attachments) if attachments else "")
 
 
 # --- INCOMING command (core: inject message into session) ---
 
-def cmd_incoming(config, sender, message, name="", timestamp=""):
+def cmd_incoming(config, sender, message, name="", timestamp="", attachments_json=""):
     """Inject an incoming message: store in DB, write to inbox, fire trigger."""
     # Whitelist check
     if config["whitelist"] and sender not in config["whitelist"]:
         print(f"Blocked: {sender} not in whitelist", file=sys.stderr)
         return
+
+    # Process attachments (transcribe audio)
+    attachment_metadata = []
+    transcription = ""
+    if attachments_json:
+        attachment_metadata, transcription = _process_attachments(attachments_json, config)
+
+    # Build the effective message: original text + transcription
+    effective_message = message
+    if transcription and not message:
+        # Voice-only message: use transcription as the message
+        effective_message = f"[Voice message] {transcription}"
+    elif transcription and message:
+        # Text + voice attachment
+        effective_message = f"{message}\n[Voice message] {transcription}"
 
     db = get_signal_db(config)
     ts = timestamp or datetime.now().isoformat()
@@ -185,14 +310,14 @@ def cmd_incoming(config, sender, message, name="", timestamp=""):
     db.execute("""
         INSERT INTO messages (contact_number, direction, body, timestamp)
         VALUES (?, 'in', ?, ?)
-    """, (sender, message[:8000], ts))
+    """, (sender, effective_message[:8000], ts))
 
     # 2. Write to atlas inbox
     atlas_db = sqlite3.connect(ATLAS_DB_PATH)
     atlas_db.execute("PRAGMA busy_timeout=5000")
     cursor = atlas_db.execute(
         "INSERT INTO messages (channel, sender, content) VALUES (?, ?, ?)",
-        ("signal", sender, message),
+        ("signal", sender, effective_message),
     )
     inbox_msg_id = cursor.lastrowid
     atlas_db.commit()
@@ -207,7 +332,7 @@ def cmd_incoming(config, sender, message, name="", timestamp=""):
     # Touch .wake so main session picks up the message even if trigger.sh fails
     Path(WAKE_PATH).touch()
 
-    print(f"[{datetime.now()}] Signal from {sender}: {message[:80]}... (inbox={inbox_msg_id})")
+    print(f"[{datetime.now()}] Signal from {sender}: {effective_message[:80]}... (inbox={inbox_msg_id})")
 
     # Check for /new command — reset session with memory handoff
     if message.strip().lower() == "/new":
@@ -215,13 +340,16 @@ def cmd_incoming(config, sender, message, name="", timestamp=""):
         return
 
     # 3. Fire trigger (trigger.sh handles IPC socket injection vs new session)
-    payload = json.dumps({
+    payload_data = {
         "inbox_message_id": inbox_msg_id,
         "sender": sender,
         "sender_name": name,
-        "message": message[:4000],
+        "message": effective_message[:4000],
         "timestamp": ts,
-    })
+    }
+    if attachment_metadata:
+        payload_data["attachments"] = attachment_metadata
+    payload = json.dumps(payload_data)
 
     try:
         subprocess.Popen(
@@ -537,6 +665,7 @@ Examples:
     p_in.add_argument("message", help="Message text")
     p_in.add_argument("--name", default="", help="Sender display name")
     p_in.add_argument("--timestamp", default="", help="Message timestamp")
+    p_in.add_argument("--attachments", default="", help="JSON array of attachment metadata from signal-cli")
 
     # send
     p_send = sub.add_parser("send", help="Send a Signal message")
@@ -569,7 +698,8 @@ Examples:
                 time.sleep(interval)
     elif args.command == "incoming":
         cmd_incoming(config, args.sender, args.message,
-                     name=args.name, timestamp=args.timestamp)
+                     name=args.name, timestamp=args.timestamp,
+                     attachments_json=args.attachments)
     elif args.command == "send":
         cmd_send(config, args.number, args.message, attachments=args.attach)
     elif args.command == "contacts":
