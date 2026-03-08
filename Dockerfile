@@ -60,6 +60,11 @@ RUN npm install -g @playwright/mcp
 # Install QMD globally (use npm so binary goes to /usr/local/bin, surviving /root volume mount)
 RUN npm install -g @tobilu/qmd || true
 
+# Install Parakeet STT server (Whisper-compatible API for voice message transcription)
+RUN ARCH=$(dpkg --print-architecture) && \
+  curl -fsSL "https://github.com/achetronic/parakeet/releases/download/v0.1.1/parakeet-linux-${ARCH}" -o /usr/local/bin/parakeet && \
+  chmod +x /usr/local/bin/parakeet
+
 # Create directory structure
 RUN mkdir -p /atlas/app/hooks \
   /atlas/app/prompts \

@@ -49,6 +49,15 @@ if [ ! -f "$WORKSPACE/crontab" ]; then
   echo "  Created default crontab"
 fi
 
+# ── Phase 4b: Default supervisor configs ──
+for conf in /atlas/app/defaults/supervisor.d/*.conf; do
+  name=$(basename "$conf")
+  if [ ! -f "$WORKSPACE/supervisor.d/$name" ]; then
+    cp "$conf" "$WORKSPACE/supervisor.d/$name"
+    echo "  Created default supervisor.d/$name"
+  fi
+done
+
 # ── Phase 5: First-Run Check + Migrations ──
 echo "[$(date)] Phase 5: First-run check + migrations"
 FIRST_RUN=false

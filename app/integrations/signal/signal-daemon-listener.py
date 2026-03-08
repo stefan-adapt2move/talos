@@ -48,21 +48,24 @@ def handle_notification(notification):
     dm = envelope.get("dataMessage", {})
 
     body = dm.get("message", "")
+    attachments = dm.get("attachments", [])
     sender = envelope.get("sourceNumber") or envelope.get("source", "")
     name = envelope.get("sourceName", "")
     ts = str(envelope.get("timestamp", ""))
 
-    # Ignore receipts, typing notifications, and empty messages
-    if not sender or not body:
+    # Ignore receipts, typing notifications, and messages with no body AND no attachments
+    if not sender or (not body and not attachments):
         return
 
-    log(f"Message from {sender} ({name}): {body[:80]}")
+    log(f"Message from {sender} ({name}): {body[:80] if body else f'[{len(attachments)} attachment(s)]'}")
 
-    cmd = ["signal", "incoming", sender, body]
+    cmd = ["signal", "incoming", sender, body or ""]
     if name:
         cmd += ["--name", name]
     if ts:
         cmd += ["--timestamp", ts]
+    if attachments:
+        cmd += ["--attachments", json.dumps(attachments)]
 
     try:
         subprocess.run(cmd, timeout=30, check=False)
