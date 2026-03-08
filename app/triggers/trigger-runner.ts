@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Trigger Runner — replaces trigger.sh + claude-atlas
+ * Trigger Runner — replaces the old claude-atlas shell wrapper
  *
  * Usage: bun run trigger-runner.ts <trigger-name> [payload] [session-key]
  *
@@ -407,14 +407,142 @@ function openDb(): Database {
 }
 
 // ---------------------------------------------------------------------------
+// Direct mode (no DB trigger)
+// ---------------------------------------------------------------------------
+
+export type RunDirectOptions = {
+  channel?: string;
+  modelKey?: string;
+  env?: Record<string, string>;
+  resumeId?: string;
+};
+
+/**
+ * Run a Claude session directly with a prompt, without needing a DB trigger entry.
+ * Used by manage-reminders.ts and event.sh for ad-hoc sessions.
+ *
+ * @param prompt - The user prompt to send
+ * @param options - Optional overrides for channel, modelKey, and extra env vars
+ */
+export async function runDirect(
+  prompt: string,
+  options?: RunDirectOptions
+): Promise<void> {
+  const channel = options?.channel ?? "internal";
+  const modelKey = options?.modelKey ?? "trigger";
+  const triggerName = "direct";
+
+  const log = makeLogger(triggerName);
+
+  // --- Disable remote MCP ---
+  disableRemoteMcp();
+
+  // --- Build system prompt ---
+  const systemPrompt = buildSystemPrompt(channel);
+
+  // --- Resolve model ---
+  const model = resolveModel(`${HOME}/config.yml`, modelKey);
+
+  // --- MCP servers ---
+  const mcpServers = getMcpServers();
+
+  // --- Set environment variables ---
+  process.env.ATLAS_TRIGGER = triggerName;
+  process.env.ATLAS_TRIGGER_CHANNEL = channel;
+  process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
+  delete process.env.CLAUDECODE;
+
+  // Apply any extra env vars from options
+  if (options?.env) {
+    for (const [k, v] of Object.entries(options.env)) {
+      process.env[k] = v;
+    }
+  }
+
+  const triggerTimeout = parseInt(process.env.TRIGGER_TIMEOUT ?? "3600", 10) * 1000;
+
+  log.log(`Direct session starting (channel=${channel}, model=${model})`);
+
+  const startedAt = isoNow();
+  let resultMsg: SDKResultMessage | null = null;
+  let isError = false;
+
+  const resumeId = options?.resumeId;
+  const queryOptions: Parameters<typeof query>[0]["options"] = {
+    systemPrompt,
+    model,
+    mcpServers,
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    cwd: HOME,
+    ...(resumeId ? { resume: resumeId } : { persistSession: false }),
+  };
+
+  const q = query({ prompt, options: queryOptions });
+
+  const timeoutHandle = setTimeout(() => {
+    q.return(undefined);
+  }, triggerTimeout);
+
+  try {
+    for await (const msg of q) {
+      if (msg.type === "result") {
+        resultMsg = msg as SDKResultMessage;
+        isError = msg.subtype !== "success";
+        break;
+      }
+    }
+  } catch (err) {
+    log.log(`ERROR in direct session: ${err}`);
+    isError = true;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
+  if (resultMsg && "result" in resultMsg) {
+    log.log(`Result: ${(resultMsg as { result: string }).result ?? "(no result)"}`);
+  }
+  log.log(`Direct session done (error=${isError})`);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 export async function main(): Promise<void> {
-  const [triggerName, payload = "", sessionKeyArg] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+
+  // --- Direct mode: --direct "<prompt>" [--channel <channel>] [--model-key <key>] [--resume <session-id>] ---
+  if (args[0] === "--direct") {
+    const prompt = args[1];
+    if (!prompt) {
+      console.error("Usage: trigger-runner.ts --direct \"<prompt>\" [--channel <channel>] [--model-key <key>] [--resume <session-id>]");
+      process.exit(1);
+    }
+
+    let channel = "internal";
+    let modelKey = process.env.ATLAS_CRON === "1" ? "cron" : "trigger";
+    let resumeId: string | undefined;
+
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--channel" && args[i + 1]) {
+        channel = args[++i];
+      } else if (args[i] === "--model-key" && args[i + 1]) {
+        modelKey = args[++i];
+      } else if (args[i] === "--resume" && args[i + 1]) {
+        resumeId = args[++i];
+      }
+    }
+
+    await runDirect(prompt, { channel, modelKey, resumeId });
+    return;
+  }
+
+  const [triggerName, payload = "", sessionKeyArg] = args;
 
   if (!triggerName) {
     console.error("Usage: trigger-runner.ts <trigger-name> [payload] [session-key]");
+    console.error("       trigger-runner.ts --direct \"<prompt>\" [--channel <channel>]");
     process.exit(1);
   }
 

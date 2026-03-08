@@ -13,7 +13,7 @@ Atlas uses a three-file MCP config in `~/.atlas-mcp/`:
 | `atlas.json` | Trigger only | Atlas-managed MCPs — add your own here |
 | `user.json` | All sessions | User MCPs like Playwright |
 
-`claude-atlas` selects configs via `--mcp-config ... --strict-mcp-config` per `--mode`. `~/.mcp.json` is fully ignored by all Atlas sessions.
+The `trigger-runner` binary injects MCP servers directly via the SDK `mcpServers` option. `~/.mcp.json` is fully ignored by trigger sessions.
 
 ## Add an MCP for All Sessions (trigger + worker)
 
@@ -117,5 +117,5 @@ The `~/.atlas-mcp/` directory survives restarts (it's in `$HOME`). But if you in
 ## Notes
 
 - Changes to `~/.atlas-mcp/*.json` take effect on the **next session start**
-- `system.json` is auto-recreated by `claude-atlas` if deleted — don't edit it directly
+- `system.json` is no longer used by trigger sessions — MCP config is now embedded in `trigger-runner`
 - `atlas.json` is yours to manage freely

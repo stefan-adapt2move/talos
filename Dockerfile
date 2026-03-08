@@ -1,3 +1,23 @@
+# ============================================================
+# Stage 1: Compile trigger-runner to a native Bun binary
+# ============================================================
+FROM oven/bun:1 AS trigger-builder
+
+WORKDIR /build
+
+# Copy package files and install dependencies
+COPY app/triggers/package.json app/triggers/bun.lock* ./
+RUN bun install --frozen-lockfile
+
+# Copy source and compile to native binary
+# Target is linux-x64; override with --build-arg if building for ARM.
+ARG BUN_TARGET=bun-linux-x64
+COPY app/triggers/trigger-runner.ts ./
+RUN bun build --compile --target=${BUN_TARGET} trigger-runner.ts --outfile trigger-runner
+
+# ============================================================
+# Stage 2: Main application image
+# ============================================================
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -84,11 +104,15 @@ RUN mkdir -p /atlas/app/hooks \
 COPY app/ /atlas/app/
 COPY .claude/settings.json /atlas/app/.claude/settings.json
 
+# Copy compiled trigger-runner native binary from build stage
+COPY --from=trigger-builder /build/trigger-runner /atlas/app/triggers/trigger-runner
+
 # Set execute permissions
 RUN chmod +x /atlas/app/entrypoint.sh \
   && chmod +x /atlas/app/init.sh \
   && chmod +x /atlas/app/hooks/*.sh \
   && chmod +x /atlas/app/triggers/cron/*.sh \
+  && chmod +x /atlas/app/triggers/trigger-runner \
   && chmod +x /atlas/app/bin/*
 
 # Install Atlas-MCP dependencies

@@ -239,13 +239,13 @@ switch (command) {
       // Wrap the user's prompt with reminder context and memory instructions
       const promptText = `[Reminder #${reminder.id}: "${reminder.title}"]\n\n${reminder.prompt}\n\nIMPORTANT: After completing this task, write a brief note to today's journal (memory/journal/) documenting what you did and any messages you sent. This ensures other sessions (e.g. Signal) have context if the user replies.`;
 
-      // Spawn claude-atlas in the background (don't await — let them run in parallel)
+      // Spawn trigger-runner as a detached process (fire-and-forget, truly independent)
+      // Using --direct mode so no DB trigger lookup is needed.
       const proc = Bun.spawn(
-        ["/atlas/app/bin/claude-atlas", "--mode", "trigger", "-p", promptText],
+        ["/atlas/app/triggers/trigger-runner", "--direct", promptText, "--channel", channel],
         {
           env: {
             ...process.env,
-            ATLAS_TRIGGER_CHANNEL: channel,
             ATLAS_REMINDER_ID: String(reminder.id),
             ATLAS_REMINDER_TITLE: reminder.title,
           },

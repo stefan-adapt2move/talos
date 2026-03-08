@@ -1,4 +1,4 @@
 #!/bin/bash
-# Trigger runner — delegates to TypeScript implementation
+# Trigger runner — delegates to native compiled binary
 set -euo pipefail
-exec bun run /atlas/app/triggers/trigger-runner.ts "$@"
+exec /atlas/app/triggers/trigger-runner "$@"

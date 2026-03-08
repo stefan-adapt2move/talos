@@ -12,12 +12,12 @@ Containerized autonomous agent system powered by Claude Code. Made to enable com
 ## Overview
 
 ```
-Trigger Event → trigger.sh → claude-atlas → Trigger Session (PM role)
-                                                       ↓
-                                          Simple: respond directly via CLI tools
-                                          Complex: TeamCreate + path_lock + Agent(teammates)
-                                                       ↓
-                                          Teammates work in parallel on non-overlapping paths
+Trigger Event → trigger.sh → trigger-runner (native binary) → Trigger Session (PM role)
+                                                                          ↓
+                                                         Simple: respond directly via CLI tools
+                                                         Complex: TeamCreate + path_lock + Agent(teammates)
+                                                                          ↓
+                                                         Teammates work in parallel on non-overlapping paths
 ```
 
 ## Tech Stack

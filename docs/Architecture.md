@@ -38,7 +38,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ## Data Flow
 
 1. **Event arrives** — Cron fires, webhook POSTs, or message sent
-2. **Trigger session** — `trigger.sh` spawns a Claude session via `claude-atlas`
+2. **Trigger session** — `trigger.sh` spawns a Claude session via `trigger-runner` (native binary)
 3. **Trigger handles** — Processes the event, responds directly or delegates
 4. **Delegation** — For complex work: `TeamCreate` + `path_lock` + `Agent` teammates
 5. **Parallel execution** — Teammates work independently on non-overlapping paths
@@ -48,7 +48,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ## Session Types
 
 ### Trigger Session (Project Manager)
-- **Spawned by**: `trigger.sh` per event via `claude-atlas`
+- **Spawned by**: `trigger.sh` per event via `trigger-runner`
 - **System prompt**: SOUL + IDENTITY + trigger-system-prompt + channel-specific prompt
 - **MCP tools**: `path_lock`, `path_unlock`, `path_lock_status` + memory (qmd)
 - **Purpose**: User communication, task planning, memory management, team coordination

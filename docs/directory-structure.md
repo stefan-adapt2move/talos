@@ -9,9 +9,11 @@ Core application code. Copied into the container image at build time. Not modifi
 ```
 app/
 ├── bin/                        # CLI wrappers
-│   ├── claude-atlas           # Trigger session launcher (injects system prompt + MCP config)
 │   ├── email                  # Email CLI wrapper
-│   └── signal                 # Signal CLI wrapper
+│   ├── reminder               # Reminder CLI wrapper
+│   ├── signal                 # Signal CLI wrapper
+│   ├── trigger                # Trigger management CLI wrapper
+│   └── webhook-listener       # Webhook listener CLI wrapper
 ├── defaults/                   # Default configs seeded on first run
 │   ├── config.yml             # Default configuration
 │   ├── crontab                # Default cron entries
@@ -33,7 +35,8 @@ app/
 ├── web-ui/                     # Hono.js dashboard
 │   └── index.ts               # Web server
 ├── triggers/                   # Trigger runner scripts
-│   ├── trigger.sh             # Generic trigger runner (spawns/resumes trigger sessions)
+│   ├── trigger.sh             # Thin wrapper: delegates to trigger-runner binary
+│   ├── trigger-runner.ts      # Trigger runner (compiled to native binary at build time)
 │   ├── manage.ts              # Trigger management CLI
 │   ├── sync-crontab.ts        # Crontab auto-generation from DB
 │   └── cron/                  # Cron-specific scripts
@@ -94,8 +97,8 @@ home/
 
 | Path | Description |
 |------|-------------|
-| `app/bin/claude-atlas` | Trigger session launcher: injects system prompt, model, MCP config |
-| `app/triggers/trigger.sh` | Trigger runner: spawns or resumes Claude sessions per event |
+| `app/triggers/trigger-runner` | Native binary: trigger session launcher (injects system prompt, model, MCP) |
+| `app/triggers/trigger.sh` | Thin shell wrapper: delegates to trigger-runner binary |
 | `app/hooks/session-start.sh` | Loads memory context on session start |
 | `app/hooks/stop.sh` | Path lock cleanup and journal reminder |
 | `app/atlas-mcp/index.ts` | MCP server with path locking tools |
