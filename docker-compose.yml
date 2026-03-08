@@ -23,8 +23,6 @@ services:
     image: ghcr.io/achetronic/parakeet:latest
     container_name: atlas-stt
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:5092:5092"
     networks:
       - atlas
 
