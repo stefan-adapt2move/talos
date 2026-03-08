@@ -37,7 +37,7 @@ reminder delete --id=5  # permanently remove
 
 - Reminders are stored in the SQLite database (`~/.index/atlas.db`) in the `reminders` table
 - A cron job checks for due reminders every minute: `* * * * * bun /atlas/app/triggers/manage-reminders.ts check`
-- When a reminder fires, it spawns a `claude-atlas --mode trigger` session with the reminder's prompt
+- When a reminder fires, it spawns an ephemeral Claude session with the reminder's prompt
 - Fired and cancelled reminders older than 30 days are automatically cleaned up by the daily cleanup job
 
 ## Notes

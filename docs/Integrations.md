@@ -1,6 +1,6 @@
 # Integrations
 
-Atlas supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or delegate complex tasks via `task_create`.
+Atlas supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or delegate complex tasks to agent teammates.
 
 ## Architecture
 
@@ -24,11 +24,11 @@ Signal message ──▸ signal incoming <sender> <message>
                                                 │
                                     ┌───────────┴───────────┐
                                     │                       │
-                          signal send               task_create
-                          (direct CLI call)             (escalate)
+                          signal send               Agent(...)
+                          (direct CLI call)             (delegate)
                                     │                       │
                                     ▼                       ▼
-                            signal-cli send         Task-runner
+                            signal-cli send         Agent teammate
 
 
 Email (IMAP) ──▸ email poll
@@ -47,11 +47,11 @@ Email (IMAP) ──▸ email poll
                                                 │
                                     ┌───────────┴───────────┐
                                     │                       │
-                          email reply                task_create
-                          (direct CLI call)              (escalate)
+                          email reply                Agent(...)
+                          (direct CLI call)              (delegate)
                                     │                       │
                                     ▼                       ▼
-                            SMTP with threading     Task-runner
+                            SMTP with threading     Agent teammate
                             headers
 ```
 
@@ -111,7 +111,7 @@ trigger_create:
     {{payload}}
 
     The payload contains inbox_message_id and sender. Reply via CLI: signal send.
-    Escalate complex tasks via task_create.
+    Escalate complex tasks by delegating to an Agent teammate.
 ```
 
 **3. Start polling** (add to supervisord or crontab):
@@ -206,7 +206,7 @@ trigger_create:
     {{payload}}
 
     The payload contains inbox_message_id and thread_id. Reply via CLI: email reply.
-    Escalate complex tasks via task_create.
+    Escalate complex tasks by delegating to an Agent teammate.
 ```
 
 **4. Start polling**:

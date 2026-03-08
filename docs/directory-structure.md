@@ -9,9 +9,11 @@ Core application code. Copied into the container image at build time. Not modifi
 ```
 app/
 ├── bin/                        # CLI wrappers
-│   ├── claude-atlas           # Trigger session launcher (injects system prompt + MCP config)
 │   ├── email                  # Email CLI wrapper
-│   └── signal                 # Signal CLI wrapper
+│   ├── reminder               # Reminder CLI wrapper
+│   ├── signal                 # Signal CLI wrapper
+│   ├── trigger                # Trigger management CLI wrapper
+│   └── webhook-listener       # Webhook listener CLI wrapper
 ├── defaults/                   # Default configs seeded on first run
 │   ├── config.yml             # Default configuration
 │   ├── crontab                # Default cron entries
@@ -33,7 +35,8 @@ app/
 ├── web-ui/                     # Hono.js dashboard
 │   └── index.ts               # Web server
 ├── triggers/                   # Trigger runner scripts
-│   ├── trigger.sh             # Generic trigger runner (spawns/resumes trigger sessions)
+│   ├── trigger.sh             # Thin wrapper: delegates to trigger-runner binary
+│   ├── trigger-runner.ts      # Trigger runner (compiled to native binary at build time)
 │   ├── manage.ts              # Trigger management CLI
 │   ├── sync-crontab.ts        # Crontab auto-generation from DB
 │   └── cron/                  # Cron-specific scripts
@@ -59,11 +62,8 @@ home/
 │   │   └── <skill-name> →     # Symlinks to system or user skills
 │   └── agents/                # Merged agent directory (per-agent symlinks)
 │       └── <agent-name>.md →  # Symlinks to system or user agent specs
-├── .atlas-mcp/                 # MCP config for trigger sessions (generated)
-│   ├── system.json            # Atlas MCP + memory servers
-│   ├── atlas.json             # User-extended MCP servers
-│   ├── user.json              # Playwright + other user MCPs
-│   └── .merged.json           # Merged MCP config (generated on each trigger run)
+├── .atlas-mcp/                 # User MCP config (loaded by trigger sessions)
+│   └── user.json              # User MCP servers (Playwright, custom tools)
 ├── .index/                     # System state
 │   ├── atlas.db               # SQLite database (WAL mode)
 │   ├── .trigger-<name>.flock  # Per-trigger flock file (concurrency control)
@@ -94,8 +94,8 @@ home/
 
 | Path | Description |
 |------|-------------|
-| `app/bin/claude-atlas` | Trigger session launcher: injects system prompt, model, MCP config |
-| `app/triggers/trigger.sh` | Trigger runner: spawns or resumes Claude sessions per event |
+| `app/triggers/trigger-runner` | Native binary: trigger session launcher (injects system prompt, model, MCP) |
+| `app/triggers/trigger.sh` | Thin shell wrapper: delegates to trigger-runner binary |
 | `app/hooks/session-start.sh` | Loads memory context on session start |
 | `app/hooks/stop.sh` | Path lock cleanup and journal reminder |
 | `app/atlas-mcp/index.ts` | MCP server with path locking tools |

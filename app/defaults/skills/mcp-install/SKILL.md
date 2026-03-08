@@ -1,75 +1,40 @@
 ---
 name: mcp-install
-description: How to install and configure MCP servers in Atlas. Use when adding new MCP tools, configuring MCPs for specific session types, or managing the ~/.atlas-mcp/ directory.
+description: How to install and configure MCP servers in Atlas. Use when adding new MCP tools, configuring MCPs for specific session types, or managing MCP config files.
 ---
 
 # Installing MCP Servers
 
-Atlas uses a three-file MCP config in `~/.atlas-mcp/`:
+## How MCP Config Works
 
-| File | Available in | Purpose |
-|------|-------------|---------|
-| `system.json` | Trigger only | inbox + memory (system-managed, don't edit) |
-| `atlas.json` | Trigger only | Atlas-managed MCPs — add your own here |
-| `user.json` | All sessions | User MCPs like Playwright |
+**Trigger sessions** (the main Atlas sessions) load MCP servers programmatically:
 
-`claude-atlas` selects configs via `--mcp-config ... --strict-mcp-config` per `--mode`. `~/.mcp.json` is fully ignored by all Atlas sessions.
+1. **System servers** (work, memory) — always loaded, built into `trigger-runner`
+2. **User servers** — loaded from `~/.atlas-mcp/user.json` and `~/.mcp.json` (both are checked; pick one)
 
-## Add an MCP for All Sessions (trigger + worker)
+**Worker/agent sessions** (spawned by trigger sessions via `Agent(...)`) inherit the parent's MCP config or receive their own via the SDK `mcpServers` option.
 
-Edit `~/.atlas-mcp/user.json`:
+## Adding an MCP Server
+
+Edit either `~/.atlas-mcp/user.json` or `~/.mcp.json` — both work, pick one location to keep things simple.
 
 ```json
 {
   "mcpServers": {
-    "playwright": {
-      "url": "http://localhost:8931/sse"
-    },
     "my-tool": {
       "command": "node",
-      "args": ["/path/to/server.js"]
+      "args": ["/path/to/mcp-server.js"]
     }
   }
 }
 ```
 
-## Add an MCP for Trigger Sessions Only
+Changes take effect on the **next session start**.
 
-Edit `~/.atlas-mcp/atlas.json` (Atlas-managed):
+## Stdio vs URL-Based Servers
 
-```json
-{
-  "mcpServers": {
-    "my-atlas-tool": {
-      "command": "npx",
-      "args": ["-y", "@example/mcp-server"]
-    }
-  }
-}
-```
+**Stdio** — spawns a subprocess per session. Use this for most servers:
 
-## Pre-running Services (use URL transport)
-
-Several MCP servers are already running in the container via supervisord — reference them by URL instead of spawning new processes:
-
-| Service | URL | Notes |
-|---------|-----|-------|
-| QMD (memory) | `http://localhost:8181/mcp` | Already in `system.json` |
-| Playwright | `http://localhost:8931/sse` | Already in `user.json` |
-
-```json
-{ "url": "http://localhost:8181/mcp" }
-```
-
-## MCP Transport Types
-
-**SSE/HTTP** — connects to an already-running HTTP server (preferred for daemons):
-```json
-{ "url": "http://localhost:PORT/sse" }
-```
-Use `/sse` or `/mcp` depending on what the server supports (`/mcp` for QMD, `/sse` for Playwright).
-
-**stdio** — spawns a fresh subprocess per session (use when no daemon is running):
 ```json
 {
   "command": "node",
@@ -77,11 +42,21 @@ Use `/sse` or `/mcp` depending on what the server supports (`/mcp` for QMD, `/ss
 }
 ```
 
-## Running a New MCP Server as a Daemon (supervisord)
+**URL-based (SSE/HTTP)** — connects to an already-running server. These are **NOT supported in trigger sessions** (they cause silent exit issues). Use stdio instead, or connect to already-running services like Playwright via the built-in config.
 
-For MCP servers that need to persist across sessions, register them with supervisord:
+Already-running services available in the container:
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| QMD (memory) | `http://localhost:8181/mcp` | Already configured as system server |
+| Playwright | `http://localhost:8931/sse` | Already configured in default user.json |
+
+## Running an MCP Server as a Daemon (supervisord)
+
+For servers that need to persist across sessions, run them via supervisord and connect via stdio from a wrapper script. Or, if URL transport is needed (worker sessions only), register the daemon:
 
 Create `/etc/supervisor/conf.d/my-mcp.conf`:
+
 ```ini
 [program:my-mcp]
 command=node /path/to/mcp-server.js --port 9000
@@ -91,13 +66,15 @@ stdout_logfile=/atlas/logs/my-mcp.log
 stderr_logfile=/atlas/logs/my-mcp.log
 ```
 
-Then reload supervisord:
+Then reload:
+
 ```bash
 supervisorctl reread && supervisorctl update
 supervisorctl start my-mcp
 ```
 
-To make it survive container restarts, add the config to `user-extensions.sh`:
+To persist across container restarts, add the config to `~/user-extensions.sh`:
+
 ```bash
 cat > /etc/supervisor/conf.d/my-mcp.conf << 'EOF'
 [program:my-mcp]
@@ -110,12 +87,6 @@ EOF
 supervisorctl reread && supervisorctl update
 ```
 
-## Persisting across container restarts
+## Persisting Across Container Restarts
 
-The `~/.atlas-mcp/` directory survives restarts (it's in `$HOME`). But if you install a new npm/pip package for an MCP server, add that install to `user-extensions.sh` too.
-
-## Notes
-
-- Changes to `~/.atlas-mcp/*.json` take effect on the **next session start**
-- `system.json` is auto-recreated by `claude-atlas` if deleted — don't edit it directly
-- `atlas.json` is yours to manage freely
+`~/.atlas-mcp/user.json` and `~/.mcp.json` are in `$HOME` and survive restarts. If your MCP server requires a package install (npm, pip, etc.), add that install to `~/user-extensions.sh`.
