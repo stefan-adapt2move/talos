@@ -18,16 +18,15 @@ services:
       - atlas
 
   # Speech-to-Text sidecar (Parakeet TDT v3, Whisper-compatible API)
-  # Uncomment to enable voice message transcription.
   # First start downloads the ONNX model (~670MB).
-  # stt:
-  #   image: ghcr.io/achetronic/parakeet:latest
-  #   container_name: atlas-stt
-  #   restart: unless-stopped
-  #   ports:
-  #     - "127.0.0.1:5092:5092"
-  #   networks:
-  #     - atlas
+  stt:
+    image: ghcr.io/achetronic/parakeet:latest
+    container_name: atlas-stt
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5092:5092"
+    networks:
+      - atlas
 
 networks:
   atlas:
