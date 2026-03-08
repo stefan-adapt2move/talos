@@ -48,10 +48,11 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ## Session Types
 
 ### Trigger Session (Project Manager)
-- **Spawned by**: `trigger.sh` per event via `trigger-runner`
+- **Spawned by**: `trigger.sh` per event via `trigger-runner` (compiled Bun binary)
 - **System prompt**: SOUL + IDENTITY + trigger-system-prompt + channel-specific prompt
 - **MCP tools**: `path_lock`, `path_unlock`, `path_lock_status` + memory (qmd)
 - **Purpose**: User communication, task planning, memory management, team coordination
+- **Lifecycle**: Persistent sessions survive container restarts (resume via SDK) and are auto-recovered when stale (see [watcher.md](watcher.md))
 
 ### Agent Teammates
 - **Spawned by**: Trigger session via `Agent(team_name=..., name=..., model=...)`

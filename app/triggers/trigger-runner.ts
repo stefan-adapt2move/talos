@@ -19,7 +19,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, readdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "fs";
 import { createConnection } from "net";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
@@ -338,31 +338,33 @@ export function disableRemoteMcp(): void {
 }
 
 /**
- * Check if a session's JSONL file ends with a "queue-operation" entry,
- * which indicates the container was killed mid-IPC-inject (corrupted state).
+ * Find the JSONL file for a session across all project directories.
  */
-export function checkCorruptedSession(sessionId: string, homeDir?: string): boolean {
+export function findSessionJsonl(sessionId: string, homeDir?: string): string | null {
   const base = homeDir ?? HOME;
   const projectsDir = `${base}/.claude/projects`;
 
-  if (!existsSync(projectsDir)) return false;
+  if (!existsSync(projectsDir)) return null;
 
-  // Search all project subdirectories for the session JSONL
-  let jsonlPath: string | null = null;
   try {
     for (const projectEntry of readdirSync(projectsDir)) {
       const sessionsDir = `${projectsDir}/${projectEntry}/sessions`;
       if (!existsSync(sessionsDir)) continue;
       const candidate = `${sessionsDir}/${sessionId}.jsonl`;
-      if (existsSync(candidate)) {
-        jsonlPath = candidate;
-        break;
-      }
+      if (existsSync(candidate)) return candidate;
     }
   } catch {
-    return false;
+    // ignore
   }
+  return null;
+}
 
+/**
+ * Check if a session's JSONL file ends with a "queue-operation" entry,
+ * which indicates the container was killed mid-IPC-inject (corrupted state).
+ */
+export function checkCorruptedSession(sessionId: string, homeDir?: string): boolean {
+  const jsonlPath = findSessionJsonl(sessionId, homeDir);
   if (!jsonlPath) return false;
 
   try {
@@ -375,6 +377,50 @@ export function checkCorruptedSession(sessionId: string, homeDir?: string): bool
   } catch {
     return false;
   }
+}
+
+/**
+ * Check if a session is stale (no JSONL activity for longer than threshold).
+ * Returns idle seconds, or 0 if the session is fresh or JSONL not found.
+ */
+export function getSessionIdleSeconds(sessionId: string, homeDir?: string): number {
+  const jsonlPath = findSessionJsonl(sessionId, homeDir);
+  if (!jsonlPath) return 0;
+
+  try {
+    const mtime = statSync(jsonlPath).mtimeMs;
+    return (Date.now() - mtime) / 1000;
+  } catch {
+    return 0;
+  }
+}
+
+/** Default: 30 minutes of no JSONL activity = stale */
+const STALE_SESSION_THRESHOLD_S = parseInt(process.env.STALE_SESSION_THRESHOLD ?? "1800", 10);
+
+/**
+ * Kill a running Claude session by finding and terminating the process owning its socket.
+ */
+function killSessionProcess(sessionId: string): void {
+  const socketPath = `/tmp/claudec-${sessionId}.sock`;
+  if (!existsSync(socketPath)) return;
+
+  try {
+    // Read the socket to find the owning process via lsof (more portable than fuser)
+    const result = Bun.spawnSync(["lsof", "-t", socketPath]);
+    const pids = result.stdout.toString().trim().split("\n").filter(Boolean);
+    for (const pidStr of pids) {
+      const pid = parseInt(pidStr, 10);
+      if (!isNaN(pid)) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+      }
+    }
+  } catch {
+    // lsof not available or failed — try to remove socket directly
+  }
+
+  // Clean up socket file
+  try { unlinkSync(socketPath); } catch {}
 }
 
 /**
@@ -645,6 +691,7 @@ export async function main(): Promise<void> {
 
   // --- Persistent session: try IPC injection first ---
   let existingSession: string | null = null;
+  let staleRecovery = false;
 
   if (sessionMode === "persistent") {
     const sessionRow = db.prepare(
@@ -664,17 +711,27 @@ export async function main(): Promise<void> {
 
     // Try IPC injection if session is running
     if (existingSession) {
-      const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
-      const injected = await tryIpcInject(existingSession, injectMsg);
-      if (injected) {
-        log.log(`Injected into running session ${existingSession} (key=${sessionKey})`);
-        process.exit(0);
-      }
-      // Socket exists but connection failed — session may be stale, continue to spawn
       const socketPath = `/tmp/claudec-${existingSession}.sock`;
-      if (existsSync(socketPath)) {
-        log.log(`Stale socket for ${existingSession}, spawning new session`);
+      const socketAlive = existsSync(socketPath);
+      const idleSeconds = getSessionIdleSeconds(existingSession);
+
+      if (socketAlive && idleSeconds < STALE_SESSION_THRESHOLD_S) {
+        // Session is running and active — inject message
+        const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
+        const injected = await tryIpcInject(existingSession, injectMsg);
+        if (injected) {
+          log.log(`Injected into running session ${existingSession} (key=${sessionKey})`);
+          process.exit(0);
+        }
+        // IPC failed despite socket existing — fall through to resume
+        log.log(`IPC inject failed for ${existingSession}, will resume`);
+      } else if (socketAlive) {
+        // Session is running but stale — kill it, then resume with notice
+        log.log(`Stale session ${existingSession} (idle ${Math.round(idleSeconds)}s) — killing process`);
+        killSessionProcess(existingSession);
+        staleRecovery = true;
       }
+      // No socket (e.g. container restart) — fall through to resume
     }
   }
 
@@ -788,11 +845,21 @@ export async function main(): Promise<void> {
   delete process.env.CLAUDECODE; // avoid nested-session detection
 
   // --- Run the query ---
-  const triggerTimeout = parseInt(process.env.TRIGGER_TIMEOUT ?? "3600", 10) * 1000;
+  // Persistent sessions can run for hours (long tasks, teams) — no hard timeout.
+  // Ephemeral sessions get a timeout to prevent runaway processes.
+  const triggerTimeout = sessionMode === "persistent"
+    ? undefined
+    : parseInt(process.env.TRIGGER_TIMEOUT ?? "3600", 10) * 1000;
 
   let resultMsg: SDKResultMessage | null = null;
   let capturedSessionId: string | null = null;
   let isError = false;
+
+  // If recovering from a stale session, prepend a system notice to the prompt
+  // so the session knows it was idle-terminated and should continue.
+  if (staleRecovery) {
+    prompt = `<system-notice>This session was terminated due to inactivity. The previous session state has been preserved. Please continue where you left off and process the new message below.</system-notice>\n\n${prompt}`;
+  }
 
   const runQuery = async (resumeId?: string) => {
     const options: Parameters<typeof query>[0]["options"] = {
@@ -809,9 +876,9 @@ export async function main(): Promise<void> {
 
     const q = query({ prompt, options });
 
-    const timeoutHandle = setTimeout(() => {
-      q.return(undefined);
-    }, triggerTimeout);
+    const timeoutHandle = triggerTimeout
+      ? setTimeout(() => { q.return(undefined); }, triggerTimeout)
+      : undefined;
 
     try {
       for await (const msg of q) {
@@ -827,7 +894,7 @@ export async function main(): Promise<void> {
         }
       }
     } finally {
-      clearTimeout(timeoutHandle);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
   };
 

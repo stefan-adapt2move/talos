@@ -50,6 +50,8 @@ Each trigger has a configurable `session_mode`:
 | `ephemeral` | New session per run, discarded after | Cron jobs, one-off webhooks |
 | `persistent` | Resume session based on session key | Signal channel, email thread, ongoing context |
 
+Persistent sessions have no hard timeout and can run for hours. Stale sessions (no activity for 30+ minutes) are automatically killed and resumed with a `<system-notice>` when the next message arrives. See [watcher.md](watcher.md) for the full session state machine.
+
 ### Session Key
 
 Persistent triggers use a **session key** to determine which session to resume. The key is passed as the 3rd argument to `trigger.sh`:
