@@ -72,7 +72,7 @@ def load_config():
     return {
         "number": os.environ.get("SIGNAL_NUMBER", cfg.get("number", "")),
         "whitelist": cfg.get("whitelist", []),
-        "stt_url": os.environ.get("STT_URL", stt_cfg.get("url", "http://localhost:5092/v1/audio/transcriptions")),
+        "stt_url": os.environ.get("STT_URL", stt_cfg.get("url", "http://stt:5092/v1/audio/transcriptions")),
         "stt_enabled": stt_cfg.get("enabled", True),
     }
 
