@@ -19,7 +19,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, readdirSync } from "fs";
 import { createConnection } from "net";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
@@ -76,10 +76,7 @@ function makeLogger(triggerName: string) {
       const line = `[${new Date().toISOString()}] ${msg}`;
       console.log(line);
       try {
-        const fd = Bun.file(logPath);
-        // Append to log file
-        const existing = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
-        writeFileSync(logPath, existing + line + "\n");
+        appendFileSync(logPath, line + "\n");
       } catch {
         // Log dir may not exist in test environment, ignore
       }
@@ -551,8 +548,7 @@ export async function main(): Promise<void> {
 
   // Ensure lock is released on exit
   const releaseLock = () => {
-    try { Bun.file(flockFile).text().then(() => {}); } catch {}
-    try { require("fs").unlinkSync(flockFile); } catch {}
+    try { unlinkSync(flockFile); } catch {}
   };
   process.on("exit", releaseLock);
   process.on("SIGTERM", () => { releaseLock(); process.exit(0); });
@@ -587,7 +583,6 @@ export async function main(): Promise<void> {
   // --- Track this run ---
   let runId: number | null = null;
   try {
-    const safePayload = payload.replace(/'/g, "''");
     const runRow = db.prepare(`
       INSERT INTO trigger_runs (trigger_name, session_key, session_mode, payload)
       VALUES (?, ?, ?, ?)
