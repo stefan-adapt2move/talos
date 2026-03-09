@@ -106,15 +106,6 @@ If the symlink is missing (e.g., created after container start), re-run skill di
 ln -sfn ~/skills/my-skill ~/.claude/skills/my-skill
 ```
 
-## Updating System Skills
-
-System skills in `app/defaults/skills/` are part of the container image. To modify them:
-
-1. Edit the files in the repo (`app/defaults/skills/<name>/`)
-2. Create a PR, merge, and rebuild the image
-
-User skills in `~/skills/` override system skills with the same name (the symlink from `~/skills/` wins over `app/defaults/skills/`).
-
 ## Discovering Skills
 
 List all available skills:
