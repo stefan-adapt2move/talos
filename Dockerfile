@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   unzip sudo \
   ffmpeg \
+  pandoc \
   && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access
@@ -64,6 +65,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
   SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v0.2.33/supercronic-linux-${ARCH}" && \
   curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic && \
   chmod +x /usr/local/bin/supercronic
+
+# Install Typst (document generation)
+RUN ARCH=$(dpkg --print-architecture) && \
+  TYPST_VERSION="0.14.2" && \
+  if [ "$ARCH" = "arm64" ]; then TYPST_ARCH="aarch64"; else TYPST_ARCH="x86_64"; fi && \
+  curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
+    | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" && \
+  chmod +x /usr/local/bin/typst
+
 
 # Install Claude Code (native binary)
 # Use temp HOME to avoid installing into /root which gets volume-mounted
