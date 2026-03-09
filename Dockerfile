@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   unzip sudo \
   ffmpeg \
+  pandoc \
   && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access
@@ -73,12 +74,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
     | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" && \
   chmod +x /usr/local/bin/typst
 
-# Install Pandoc (document conversion)
-RUN ARCH=$(dpkg --print-architecture) && \
-  PANDOC_VERSION="3.9" && \
-  curl -fsSL "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-${ARCH}.tar.gz" \
-    | tar -xz --strip-components=2 -C /usr/local/bin "pandoc-${PANDOC_VERSION}/bin/pandoc" && \
-  chmod +x /usr/local/bin/pandoc
 
 # Install Claude Code (native binary)
 # Use temp HOME to avoid installing into /root which gets volume-mounted

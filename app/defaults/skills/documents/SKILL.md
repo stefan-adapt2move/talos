@@ -51,7 +51,7 @@ typst compile document.typ ~/output/document.pdf
 
 ```typst
 #set page(paper: "a4", margin: (x: 2cm, y: 2.5cm))
-#set text(font: "Linux Libertine", size: 11pt, lang: "de")
+#set text(font: "Linux Libertine", size: 11pt, lang: "en")
 #set par(justify: true, leading: 0.65em)
 ```
 
@@ -63,20 +63,20 @@ typst compile document.typ ~/output/document.pdf
 
 // --- Company header ---
 #align(right)[
-  *Musterfirma GmbH* \
-  Musterstraße 42 \
-  70173 Stuttgart \
-  Tel: +49 711 1234567 \
-  info\@musterfirma.de \
-  USt-IdNr.: DE123456789
+  *Acme Corp.* \
+  123 Business Ave \
+  San Francisco, CA 94102 \
+  Phone: +1 415 555-0100 \
+  billing\@acmecorp.com \
+  Tax ID: US12-3456789
 ]
 
 #v(1cm)
 
 // --- Recipient ---
-Beispielkunde AG \
-Kundenweg 7 \
-80331 München
+Example Industries Ltd. \
+456 Client Street \
+New York, NY 10001
 
 #v(1cm)
 
@@ -84,12 +84,12 @@ Kundenweg 7 \
 #grid(
   columns: (1fr, auto),
   align(left)[
-    *Rechnung*
+    *Invoice*
   ],
   align(right)[
-    Rechnungsnummer: 2026-042 \
-    Datum: 08.03.2026 \
-    Leistungszeitraum: Februar 2026
+    Invoice No.: 2026-042 \
+    Date: March 8, 2026 \
+    Service period: February 2026
   ],
 )
 
@@ -97,9 +97,9 @@ Kundenweg 7 \
 #line(length: 100%, stroke: 0.5pt)
 #v(0.5cm)
 
-Sehr geehrte Damen und Herren,
+Dear Sir or Madam,
 
-für die erbrachten Leistungen berechnen wir wie folgt:
+please find below the charges for services rendered:
 
 #v(0.5cm)
 
@@ -111,12 +111,12 @@ für die erbrachten Leistungen berechnen wir wie folgt:
   inset: (x: 8pt, y: 6pt),
   table.header(
     table.hline(stroke: 0.5pt),
-    [*Pos.*], [*Beschreibung*], [*Menge*], [*Einzelpreis*], [*Gesamt*],
+    [*No.*], [*Description*], [*Qty*], [*Unit Price*], [*Total*],
     table.hline(stroke: 0.5pt),
   ),
-  [1], [Webentwicklung Frontend], [40 Std.], [95,00 EUR], [3.800,00 EUR],
-  [2], [API-Integration], [16 Std.], [110,00 EUR], [1.760,00 EUR],
-  [3], [Hosting & Wartung (monatl.)], [1], [250,00 EUR], [250,00 EUR],
+  [1], [Frontend Development], [40 hrs], [95.00 USD], [3,800.00 USD],
+  [2], [API Integration], [16 hrs], [110.00 USD], [1,760.00 USD],
+  [3], [Hosting & Maintenance (monthly)], [1], [250.00 USD], [250.00 USD],
   table.hline(stroke: 0.5pt),
 )
 
@@ -126,89 +126,88 @@ für die erbrachten Leistungen berechnen wir wie folgt:
     columns: (auto, 8em),
     row-gutter: 6pt,
     align: (left, right),
-    [Nettobetrag:], [5.810,00 EUR],
-    [USt. 19%:], [1.103,90 EUR],
+    [Subtotal:], [5,810.00 USD],
+    [Tax (10%):], [581.00 USD],
     table.hline(stroke: 1pt),
-    [*Gesamtbetrag:*], [*6.913,90 EUR*],
+    [*Total:*], [*6,391.00 USD*],
   )
 ]
 
 #v(1cm)
 
-Bitte überweisen Sie den Betrag innerhalb von 14 Tagen auf folgendes Konto:
+Please transfer the amount within 14 days to the following account:
 
 #v(0.3cm)
-IBAN: DE89 3704 0044 0532 0130 00 \
-BIC: COBADEFFXXX \
-Verwendungszweck: RE-2026-042
+Account: 0532-0130-00 \
+Routing: 037040044 \
+Reference: INV-2026-042
 
 #v(1cm)
-Mit freundlichen Grüßen
+Kind regards,
 
 #v(1cm)
-Max Mustermann \
-Geschäftsführer
+John Smith \
+Managing Director
 ```
 
 ### Business Letter Template
 
 ```typst
 #set page(paper: "a4", margin: (top: 3cm, bottom: 2.5cm, x: 2.5cm))
-#set text(size: 11pt, lang: "de")
+#set text(size: 11pt, lang: "en")
 #set par(justify: true)
 
 // --- Sender ---
 #text(size: 8pt, fill: gray)[
-  Musterfirma GmbH · Musterstraße 42 · 70173 Stuttgart
+  Acme Corp. · 123 Business Ave · San Francisco, CA 94102
 ]
 
 #v(0.5cm)
 
 // --- Recipient ---
-Frau \
-Maria Beispiel \
-Beispiel AG \
-Beispielweg 1 \
-80331 München
+Ms. Jane Doe \
+Example Industries Ltd. \
+456 Client Street \
+New York, NY 10001
 
 #v(1cm)
 
 // --- Date ---
-#align(right)[Stuttgart, 08.03.2026]
+#align(right)[San Francisco, March 8, 2026]
 
 #v(1cm)
 
 // --- Subject ---
-*Betreff: Angebot für Softwareentwicklung*
+*Re: Proposal for Software Development*
 
 #v(0.5cm)
 
-Sehr geehrte Frau Beispiel,
+Dear Ms. Doe,
 
-vielen Dank für Ihre Anfrage vom 01.03.2026. Gerne unterbreiten wir Ihnen
-folgendes Angebot für die Entwicklung Ihrer Webanwendung.
+thank you for your inquiry dated March 1, 2026. We are pleased to submit
+the following proposal for the development of your web application.
 
-Das Projekt umfasst die folgenden Leistungen:
+The project includes the following deliverables:
 
-- Konzeption und Design der Benutzeroberfläche
-- Frontend-Entwicklung mit React und TypeScript
-- Backend-API mit Node.js
-- Deployment und Dokumentation
+- UI/UX design and prototyping
+- Frontend development with React and TypeScript
+- Backend API with Node.js
+- Deployment and documentation
 
-Der geschätzte Aufwand beträgt 320 Stunden bei einem Stundensatz von 95,00 EUR
-netto. Die voraussichtliche Projektlaufzeit beträgt 8 Wochen ab Auftragserteilung.
+The estimated effort is 320 hours at a rate of 95.00 USD per hour (net).
+The expected project duration is 8 weeks from contract signing.
 
-Dieses Angebot ist 30 Tage gültig. Für Rückfragen stehen wir Ihnen jederzeit
-gerne zur Verfügung.
+This proposal is valid for 30 days. Please do not hesitate to reach out
+if you have any questions.
 
 #v(0.5cm)
 
-Mit freundlichen Grüßen
+Kind regards,
 
 #v(1.5cm)
 
-Max Mustermann \
-Geschäftsführer
+John Smith \
+Managing Director
 ```
 
 ### Report Template
@@ -219,78 +218,78 @@ Geschäftsführer
   margin: (x: 2.5cm, y: 2.5cm),
   header: context {
     if counter(page).get().first() > 1 [
-      _Projektbericht Q1/2026_
+      _Project Report Q1/2026_
       #h(1fr)
       #counter(page).display("1 / 1", both: true)
     ]
   },
 )
-#set text(size: 11pt, lang: "de")
+#set text(size: 11pt, lang: "en")
 #set heading(numbering: "1.1")
 #set par(justify: true, leading: 0.65em)
 
 // --- Title page ---
 #v(4cm)
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Projektbericht Q1/2026]
+  #text(size: 24pt, weight: "bold")[Project Report Q1/2026]
 
   #v(0.5cm)
-  #text(size: 14pt, fill: gray)[Musterfirma GmbH]
+  #text(size: 14pt, fill: gray)[Acme Corp.]
 
   #v(0.3cm)
-  #text(size: 12pt)[08. März 2026]
+  #text(size: 12pt)[March 8, 2026]
 ]
 
 #pagebreak()
 
 // --- Table of contents ---
-#outline(title: "Inhaltsverzeichnis", indent: auto)
+#outline(title: "Table of Contents", indent: auto)
 
 #pagebreak()
 
 // --- Content ---
-= Zusammenfassung
+= Executive Summary
 
-Dieses Dokument fasst die Ergebnisse des ersten Quartals zusammen. Die
-wichtigsten Kennzahlen zeigen eine positive Entwicklung.
+This document summarizes the results of the first quarter. Key metrics
+show a positive trend across all project areas.
 
-= Projektstatus
+= Project Status
 
-== Meilensteine
+== Milestones
 
 #table(
   columns: (1fr, auto, auto),
   align: (left, center, center),
   inset: 8pt,
   table.header(
-    [*Meilenstein*], [*Geplant*], [*Status*],
+    [*Milestone*], [*Target Date*], [*Status*],
   ),
-  [MVP Release], [15.01.2026], [Abgeschlossen],
-  [Beta Launch], [28.02.2026], [Abgeschlossen],
-  [Public Launch], [31.03.2026], [In Arbeit],
+  [MVP Release], [Jan 15, 2026], [Completed],
+  [Beta Launch], [Feb 28, 2026], [Completed],
+  [Public Launch], [Mar 31, 2026], [In Progress],
 )
 
-== Technische Details
+== Technical Architecture
 
-Die Architektur basiert auf einer Microservice-Struktur mit den folgenden
-Komponenten:
+The architecture is based on a microservice design with the following
+components:
 
 + API Gateway (Traefik)
 + Backend Services (Go, TypeScript)
-+ Datenbank (PostgreSQL mit HA)
++ Database (PostgreSQL with HA)
 + Monitoring (Prometheus + Grafana)
 
-= Ausblick
+= Outlook
 
-Im zweiten Quartal konzentrieren wir uns auf:
+In the second quarter we will focus on:
 
-- Skalierung der Infrastruktur
-- Onboarding der ersten Kunden
-- Erweiterung der API-Schnittstellen
+- Scaling the infrastructure
+- Onboarding the first customers
+- Expanding the API surface
 
-= Anhang
+= Appendix
 
-Weitere Details auf Anfrage.
+Further details available upon request.
 ```
 
 ---
@@ -392,5 +391,5 @@ node ~/helpers/html-to-pdf.mjs /home/atlas/output/report.html /home/atlas/output
 - **Output directory**: Always save generated files to `~/output/` so they can be easily shared or attached.
 - **Templates**: Save reusable `.typ` templates to `~/templates/` for consistent formatting across documents.
 - **Typst first**: Prefer Typst for PDF generation. It is fast, produces high-quality output, and has a simple syntax. Use Pandoc mainly for format conversion or when the source is already Markdown. Use Playwright only when CSS rendering fidelity matters.
-- **German locale**: For German documents, set `#set text(lang: "de")` in Typst to get correct hyphenation. Use `#set page(paper: "a4")` for standard European page size.
+- **Localization**: Set `#set text(lang: "de")` (or other language code) in Typst for correct hyphenation. Use `#set page(paper: "a4")` for standard European page size, or `"us-letter"` for US.
 - **Fonts**: The container ships with standard system fonts. Typst also bundles its own fonts. To list available fonts: `typst fonts`.
