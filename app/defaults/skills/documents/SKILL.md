@@ -57,10 +57,10 @@ typst compile document.typ ~/output/document.pdf
 
 ### Templates
 
-See `references/typst-templates.md` for ready-to-use templates:
-- **Invoice** — with line items table, tax calculation, payment details
-- **Business Letter** — sender/recipient, subject, body, signature
-- **Report** — title page, table of contents, page numbers, headers
+Ready-to-use Typst templates in `references/`:
+- **`invoice.md`** — line items table, tax calculation, payment details
+- **`letter.md`** — sender/recipient, subject, body, signature
+- **`report.md`** — title page, table of contents, page numbers, headers
 
 ---
 
