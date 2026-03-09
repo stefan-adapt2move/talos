@@ -115,14 +115,9 @@ System skills in `app/defaults/skills/` are part of the container image. To modi
 
 User skills in `~/skills/` override system skills with the same name (the symlink from `~/skills/` wins over `app/defaults/skills/`).
 
-## Existing Skills
+## Discovering Skills
 
-| Skill | Purpose |
-|-------|---------|
-| `triggers` | Cron, webhook, manual triggers + Signal, WhatsApp, Email integration |
-| `documents` | PDF/DOCX generation with Typst, Pandoc, Playwright |
-| `design` | Visual design principles for web, apps, documents, presentations |
-| `dependencies` | Installing packages persistently in the container |
-| `reminders` | Scheduling one-time reminder events |
-| `mcp-install` | Installing and configuring MCP servers |
-| `playwright` | Browser automation and web scraping |
+List all available skills:
+```bash
+ls ~/.claude/skills/
+```
