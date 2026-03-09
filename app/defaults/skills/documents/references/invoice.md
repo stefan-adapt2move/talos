@@ -73,7 +73,7 @@ please find below the charges for services rendered:
     align: (left, right),
     [Subtotal:], [5,810.00 USD],
     [Tax (10%):], [581.00 USD],
-    table.hline(stroke: 1pt),
+    grid.hline(stroke: 1pt),
     [*Total:*], [*6,391.00 USD*],
   )
 ]
