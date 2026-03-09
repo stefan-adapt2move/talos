@@ -45,9 +45,7 @@ Do **not** create a skill for:
 
 **Important:** Do NOT include a `README.md` inside the skill folder. All documentation goes in SKILL.md or references/.
 
-User-created skills live in `~/skills/` (persist across rebuilds).
-System skills live in `app/defaults/skills/` (shipped with the container image).
-Both are symlinked into `~/.claude/skills/` on every container start.
+Skills are placed in `~/skills/` and are automatically available on the computer. Some skills come pre-installed; custom skills you create are persisted across restarts. All skills are symlinked into `~/.claude/skills/` on every start.
 
 ## SKILL.md Format
 
