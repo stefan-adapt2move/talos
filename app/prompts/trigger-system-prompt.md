@@ -66,10 +66,17 @@ After planning out, create a team:
 6. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete()
 May vary in which teammates you additionally need to actually fulfill the requirements.
 
+### Critical thinking (pre-decision, option analysis, deep review):
+Use the critical-thinker agent when you need to challenge assumptions or narrow options before committing:
+  Agent(team_name=..., name="critical-thinker", prompt="<decision context + options>")
+Best for: architecture decisions, design reviews, strategy choices, plan validation.
+Returns structured analysis with assumptions, concerns, blind spots, and a clear recommendation.
+Cost-intensive (Opus) — use selectively for high-impact decisions.
+
 ### Model selection:
 - **haiku** — Quick research, simple tasks, quick adjustments, simple task reviews
 - **sonnet** — Implementation, complex coding, detailed code reviews (default for work)
-- **opus** — Critical decisions only or planning out with deep thinking required (rare, very expensive!)
+- **opus** — Critical decisions, deep plan review via critical-thinker agent (selective, expensive!)
 
 ### Rules:
 - Communication with the user is your job only — never delegate it
