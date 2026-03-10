@@ -17,10 +17,11 @@
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKResultMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "fs";
-import { createConnection } from "net";
+import { createConnection, createServer } from "net";
+import type { Server } from "net";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
 
@@ -80,6 +81,204 @@ function resolveClaudeCodePath(): string | undefined {
 }
 
 const CLAUDE_CODE_PATH = resolveClaudeCodePath();
+
+// ---------------------------------------------------------------------------
+// Message Channel (AsyncIterable + IPC socket for message injection)
+// ---------------------------------------------------------------------------
+
+/** Default idle timeout: 5 minutes of no new messages → session ends */
+const IDLE_TIMEOUT_MS = parseInt(process.env.TRIGGER_IDLE_TIMEOUT ?? "300000", 10);
+
+/** Socket message protocol: newline-delimited JSON */
+export type SocketMessage = {
+  message: string;
+  channel: string;
+  sessionKey: string;
+};
+
+export type SocketAck = {
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Create an async message channel backed by a simple queue + promise resolver pattern.
+ * Returns an AsyncGenerator that yields SDKUserMessages and a push function for injection.
+ * The generator will return (end) after idleTimeoutMs of inactivity.
+ */
+export function createMessageChannel(sessionId: string, idleTimeoutMs = IDLE_TIMEOUT_MS) {
+  type Waiter = { resolve: (msg: SDKUserMessage) => void };
+  const waiters: Waiter[] = [];
+  const pending: SDKUserMessage[] = [];
+  let closed = false;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let idleReject: (() => void) | null = null;
+
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      closed = true;
+      // Wake any waiting consumer so it can exit
+      if (idleReject) idleReject();
+    }, idleTimeoutMs);
+  }
+
+  function buildUserMessage(text: string): SDKUserMessage {
+    return {
+      type: "user",
+      message: { role: "user", content: text },
+      parent_tool_use_id: null,
+      session_id: sessionId,
+    };
+  }
+
+  async function* generator(): AsyncGenerator<SDKUserMessage> {
+    resetIdleTimer();
+    while (!closed) {
+      if (pending.length > 0) {
+        resetIdleTimer();
+        yield pending.shift()!;
+      } else {
+        try {
+          const msg = await new Promise<SDKUserMessage>((resolve, reject) => {
+            idleReject = reject;
+            waiters.push({ resolve });
+          });
+          resetIdleTimer();
+          yield msg;
+        } catch {
+          // Idle timeout triggered — exit generator
+          break;
+        }
+      }
+    }
+    if (idleTimer) clearTimeout(idleTimer);
+  }
+
+  function push(text: string) {
+    const msg = buildUserMessage(text);
+    if (waiters.length > 0) {
+      const waiter = waiters.shift()!;
+      idleReject = null;
+      waiter.resolve(msg);
+    } else {
+      pending.push(msg);
+    }
+  }
+
+  function close() {
+    closed = true;
+    if (idleTimer) clearTimeout(idleTimer);
+    if (idleReject) idleReject();
+  }
+
+  return { generator: generator(), push, close, buildUserMessage };
+}
+
+/**
+ * Compute the socket path for a given trigger name + session key.
+ */
+export function getSocketPath(triggerName: string, sessionKey: string): string {
+  const safeKey = sessionKey.replace(/[^a-zA-Z0-9_]/g, "_");
+  return `/tmp/.trigger-${triggerName}-${safeKey}.sock`;
+}
+
+/**
+ * Start a Unix domain socket server that accepts incoming messages and pushes
+ * them into the message channel. Protocol: newline-delimited JSON.
+ *
+ * Client sends: {"message":"...", "channel":"signal", "sessionKey":"..."}\n
+ * Server responds: {"ok":true}\n
+ */
+export function startSocketServer(
+  socketPath: string,
+  pushFn: (text: string) => void,
+  logger?: { log: (msg: string) => void }
+): Server {
+  // Clean up stale socket file
+  if (existsSync(socketPath)) {
+    try { unlinkSync(socketPath); } catch {}
+  }
+
+  const server = createServer((conn) => {
+    let buffer = "";
+    conn.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const newlineIdx = buffer.indexOf("\n");
+      if (newlineIdx === -1) return;
+
+      const line = buffer.slice(0, newlineIdx);
+      buffer = buffer.slice(newlineIdx + 1);
+
+      try {
+        const msg = JSON.parse(line) as SocketMessage;
+        pushFn(msg.message);
+        logger?.log(`Socket: injected message from ${msg.channel}/${msg.sessionKey}`);
+        const ack: SocketAck = { ok: true };
+        conn.write(JSON.stringify(ack) + "\n");
+      } catch (err) {
+        const ack: SocketAck = { ok: false, error: String(err) };
+        conn.write(JSON.stringify(ack) + "\n");
+      }
+      conn.end();
+    });
+    conn.on("error", () => {}); // Ignore client errors
+  });
+
+  server.listen(socketPath);
+  return server;
+}
+
+/**
+ * Try to inject a message into a running session via the custom Unix domain socket.
+ * Returns true if injection succeeded, false otherwise.
+ */
+export async function trySocketInject(
+  socketPath: string,
+  message: string,
+  channel: string,
+  sessionKey: string
+): Promise<boolean> {
+  if (!existsSync(socketPath)) return false;
+
+  return new Promise<boolean>((resolve) => {
+    const client = createConnection(socketPath, () => {
+      const payload: SocketMessage = { message, channel, sessionKey };
+      client.write(JSON.stringify(payload) + "\n");
+    });
+
+    let buffer = "";
+    client.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const newlineIdx = buffer.indexOf("\n");
+      if (newlineIdx === -1) return;
+      try {
+        const ack = JSON.parse(buffer.slice(0, newlineIdx)) as SocketAck;
+        resolve(ack.ok === true);
+      } catch {
+        resolve(false);
+      }
+    });
+
+    client.on("error", () => resolve(false));
+    client.setTimeout(5000, () => {
+      client.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Clean up a socket server and its socket file.
+ */
+export function cleanupSocket(server: Server | null, socketPath: string): void {
+  if (server) {
+    try { server.close(); } catch {}
+  }
+  if (existsSync(socketPath)) {
+    try { unlinkSync(socketPath); } catch {}
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -290,49 +489,6 @@ export function recordMetrics(db: Database, data: MetricsData): void {
   );
 }
 
-/**
- * Queue a message for later delivery when the session lock is held.
- */
-export function enqueueMessage(
-  db: Database,
-  triggerName: string,
-  sessionKey: string,
-  payload: string,
-  channel: string
-): number {
-  const row = db.prepare(`
-    INSERT INTO pending_trigger_messages (trigger_name, session_key, payload, channel)
-    VALUES (?, ?, ?, ?)
-    RETURNING id
-  `).get(triggerName, sessionKey, payload, channel) as { id: number };
-  return row.id;
-}
-
-/**
- * Drain all pending messages for a trigger+key, returning them in chronological order.
- * Messages are deleted from the queue after reading.
- */
-export function drainPendingMessages(
-  db: Database,
-  triggerName: string,
-  sessionKey: string
-): Array<{ id: number; payload: string; channel: string; created_at: string }> {
-  const rows = db.prepare(`
-    SELECT id, payload, channel, created_at
-    FROM pending_trigger_messages
-    WHERE trigger_name = ? AND session_key = ?
-    ORDER BY created_at ASC, id ASC
-  `).all(triggerName, sessionKey) as Array<{ id: number; payload: string; channel: string; created_at: string }>;
-
-  if (rows.length > 0) {
-    db.prepare(`
-      DELETE FROM pending_trigger_messages
-      WHERE trigger_name = ? AND session_key = ?
-    `).run(triggerName, sessionKey);
-  }
-
-  return rows;
-}
 
 /**
  * Attempt to inject a message into a running Claude session via IPC socket.
@@ -538,18 +694,6 @@ function openDb(): Database {
   const db = new Database(DB_PATH, { create: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pending_trigger_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trigger_name TEXT NOT NULL,
-      session_key TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      channel TEXT NOT NULL DEFAULT 'internal',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_pending_trigger_messages
-      ON pending_trigger_messages(trigger_name, session_key, created_at);
-  `);
   return db;
 }
 
@@ -767,27 +911,44 @@ export async function main(): Promise<void> {
 
     // Try IPC injection if session is running
     if (existingSession) {
-      const socketPath = `/tmp/claudec-${existingSession}.sock`;
-      const socketAlive = existsSync(socketPath);
+      const claudeSocketPath = `/tmp/claudec-${existingSession}.sock`;
+      const claudeSocketAlive = existsSync(claudeSocketPath);
       const idleSeconds = getSessionIdleSeconds(existingSession);
 
-      if (socketAlive && idleSeconds < STALE_SESSION_THRESHOLD_S) {
-        // Session is running and active — inject message
+      if (claudeSocketAlive && idleSeconds < STALE_SESSION_THRESHOLD_S) {
+        // Session is running and active — try Claude's native IPC first
         const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
         const injected = await tryIpcInject(existingSession, injectMsg);
         if (injected) {
-          log.log(`Injected into running session ${existingSession} (key=${sessionKey})`);
+          log.log(`Injected via Claude IPC into session ${existingSession} (key=${sessionKey})`);
           process.exit(0);
         }
-        // IPC failed despite socket existing — fall through to resume
-        log.log(`IPC inject failed for ${existingSession}, will resume`);
-      } else if (socketAlive) {
+        // Claude IPC failed — try our custom socket
+        log.log(`Claude IPC failed for ${existingSession}, trying custom socket`);
+        const customSocketPath = getSocketPath(triggerName, sessionKey);
+        const socketInjected = await trySocketInject(customSocketPath, injectMsg, channel, sessionKey);
+        if (socketInjected) {
+          log.log(`Injected via custom socket into session ${existingSession} (key=${sessionKey})`);
+          process.exit(0);
+        }
+        // Both IPC methods failed — fall through to resume
+        log.log(`Both IPC methods failed for ${existingSession}, will resume`);
+      } else if (claudeSocketAlive) {
         // Session is running but stale — kill it, then resume with notice
         log.log(`Stale session ${existingSession} (idle ${Math.round(idleSeconds)}s) — killing process`);
         killSessionProcess(existingSession);
         staleRecovery = true;
+      } else {
+        // No Claude socket — try our custom socket (session may still be alive via SDK)
+        const customSocketPath = getSocketPath(triggerName, sessionKey);
+        const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
+        const socketInjected = await trySocketInject(customSocketPath, injectMsg, channel, sessionKey);
+        if (socketInjected) {
+          log.log(`Injected via custom socket (no Claude socket) for ${triggerName} (key=${sessionKey})`);
+          process.exit(0);
+        }
+        // No socket at all — fall through to resume
       }
-      // No socket (e.g. container restart) — fall through to resume
     }
   }
 
@@ -829,15 +990,27 @@ export async function main(): Promise<void> {
   }
 
   if (!lockAcquired) {
-    log.log(`Trigger ${triggerName} (key=${sessionKey}) locked — queuing message for next session`);
-    const msgId = enqueueMessage(db, triggerName, sessionKey, payload, channel);
-    log.log(`Queued message id=${msgId} for ${triggerName} (key=${sessionKey})`);
-    process.exit(0);
+    // Lock held — try injecting via our custom socket (session is running)
+    const socketPath = getSocketPath(triggerName, sessionKey);
+    const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
+    const socketInjected = await trySocketInject(socketPath, injectMsg, channel, sessionKey);
+    if (socketInjected) {
+      log.log(`Injected via socket into running session for ${triggerName} (key=${sessionKey})`);
+      process.exit(0);
+    }
+    // Socket not available — cannot inject, exit with warning
+    log.log(`WARNING: Lock held but socket unavailable for ${triggerName} (key=${sessionKey}) — message may be lost`);
+    process.exit(1);
   }
 
-  // Ensure lock is released on exit
+  // Ensure lock + socket are released on exit
+  const triggerSocketPath = getSocketPath(triggerName, sessionKey);
   const releaseLock = () => {
     try { unlinkSync(flockFile); } catch {}
+    // Socket cleanup is best-effort (may already be cleaned up by runQuery)
+    if (existsSync(triggerSocketPath)) {
+      try { unlinkSync(triggerSocketPath); } catch {}
+    }
   };
   process.on("exit", releaseLock);
   process.on("SIGTERM", () => { releaseLock(); process.exit(0); });
@@ -857,24 +1030,21 @@ export async function main(): Promise<void> {
   // Re-check IPC socket after acquiring lock
   if (sessionMode === "persistent" && existingSession) {
     const injectMsg = buildInjectMessage(channel, triggerName, sessionKey, payload, prompt);
+    // Try Claude IPC first, then custom socket
     const injected = await tryIpcInject(existingSession, injectMsg);
     if (injected) {
       log.log(`Injected into session after lock wait ${existingSession} (key=${sessionKey})`);
       releaseLock();
       process.exit(0);
     }
-  }
-
-  // --- Drain any queued messages that arrived while session was locked ---
-  const pendingMessages = drainPendingMessages(db, triggerName, sessionKey);
-  if (pendingMessages.length > 0) {
-    log.log(`Draining ${pendingMessages.length} queued message(s) for ${triggerName} (key=${sessionKey})`);
-    const pendingBlock = pendingMessages
-      .map((m) => {
-        return `<message from="${sessionKey}" queued-at="${m.created_at}">\n${m.payload}\n</message>`;
-      })
-      .join("\n\n");
-    prompt = `<queued-messages note="These messages arrived while the previous session was still processing. Process them in chronological order before the latest message.">\n${pendingBlock}\n</queued-messages>\n\n${prompt}`;
+    const customInjected = await trySocketInject(
+      getSocketPath(triggerName, sessionKey), injectMsg, channel, sessionKey
+    );
+    if (customInjected) {
+      log.log(`Injected via custom socket after lock wait for ${triggerName} (key=${sessionKey})`);
+      releaseLock();
+      process.exit(0);
+    }
   }
 
   log.log(`Trigger firing: ${triggerName} (mode=${sessionMode}, key=${sessionKey}, channel=${channel})`);
@@ -931,6 +1101,12 @@ export async function main(): Promise<void> {
     prompt = `<system-notice>This session was terminated due to inactivity. The previous session state has been preserved. Please continue where you left off and process the new message below.</system-notice>\n\n${prompt}`;
   }
 
+  // --- Set up message channel + socket server for message injection ---
+  const socketPath = getSocketPath(triggerName, sessionKey);
+  // Use a placeholder session_id initially; the generator produces messages with it
+  const msgChannel = createMessageChannel("pending", sessionMode === "persistent" ? undefined : IDLE_TIMEOUT_MS);
+  let socketServer: Server | null = null;
+
   const runQuery = async (resumeId?: string) => {
     const options: Parameters<typeof query>[0]["options"] = {
       systemPrompt,
@@ -944,10 +1120,18 @@ export async function main(): Promise<void> {
       ...(CLAUDE_CODE_PATH ? { pathToClaudeCodeExecutable: CLAUDE_CODE_PATH } : {}),
     };
 
-    const q = query({ prompt, options });
+    // Push the initial prompt as the first message
+    msgChannel.push(prompt);
+
+    // Start socket server so other trigger-runner processes can inject messages
+    socketServer = startSocketServer(socketPath, (text) => {
+      msgChannel.push(text);
+    }, log);
+
+    const q = query({ prompt: msgChannel.generator, options });
 
     const timeoutHandle = triggerTimeout
-      ? setTimeout(() => { q.return(undefined); }, triggerTimeout)
+      ? setTimeout(() => { q.close(); }, triggerTimeout)
       : undefined;
 
     try {
@@ -965,6 +1149,9 @@ export async function main(): Promise<void> {
       }
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
+      msgChannel.close();
+      cleanupSocket(socketServer, socketPath);
+      socketServer = null;
     }
   };
 
@@ -983,6 +1170,9 @@ export async function main(): Promise<void> {
         resultMsg = null;
         capturedSessionId = null;
         isError = false;
+        // Need a fresh message channel for the retry
+        cleanupSocket(socketServer, socketPath);
+        socketServer = null;
         await runQuery();
       }
     } else {
@@ -994,6 +1184,7 @@ export async function main(): Promise<void> {
   } catch (err) {
     log.log(`ERROR running trigger: ${err}`);
     isError = true;
+    cleanupSocket(socketServer, socketPath);
   }
 
   // Log result text

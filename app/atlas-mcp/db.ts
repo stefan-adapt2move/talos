@@ -112,19 +112,9 @@ function createTables(database: Database): void {
       ON trigger_runs(completed_at) WHERE completed_at IS NULL;
   `);
 
-  // Pending trigger messages: queued when lock is held, drained on next session start
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS pending_trigger_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trigger_name TEXT NOT NULL,
-      session_key TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      channel TEXT NOT NULL DEFAULT 'internal',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_pending_trigger_messages
-      ON pending_trigger_messages(trigger_name, session_key, created_at);
-  `);
+  // Migration: drop pending_trigger_messages if it exists (replaced by socket-based injection)
+  database.exec(`DROP TABLE IF EXISTS pending_trigger_messages`);
+  database.exec(`DROP INDEX IF EXISTS idx_pending_trigger_messages`);
 }
 
 function migrateSchema(database: Database): void {
