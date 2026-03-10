@@ -111,6 +111,10 @@ function createTables(database: Database): void {
     CREATE INDEX IF NOT EXISTS idx_trigger_runs_active
       ON trigger_runs(completed_at) WHERE completed_at IS NULL;
   `);
+
+  // Migration: drop pending_trigger_messages if it exists (replaced by socket-based injection)
+  database.exec(`DROP TABLE IF EXISTS pending_trigger_messages`);
+  database.exec(`DROP INDEX IF EXISTS idx_pending_trigger_messages`);
 }
 
 function migrateSchema(database: Database): void {

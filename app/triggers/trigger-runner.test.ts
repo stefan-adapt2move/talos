@@ -5,11 +5,13 @@
  * Run with: cd app/triggers && bun test
  */
 
-import { test, describe, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
+import { test, describe, expect, beforeAll, afterAll, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Database } from "bun:sqlite";
+import { createConnection } from "net";
+import type { Server } from "net";
 
 import {
   buildSystemPrompt,
@@ -20,6 +22,11 @@ import {
   recordMetrics,
   checkCorruptedSession,
   tryIpcInject,
+  createMessageChannel,
+  getSocketPath,
+  startSocketServer,
+  trySocketInject,
+  cleanupSocket,
   type TriggerConfig,
   type MetricsData,
 } from "./trigger-runner.ts";
@@ -544,5 +551,207 @@ describe("tryIpcInject", () => {
     // Use a session ID that definitely doesn't have a socket
     const result = await tryIpcInject("00000000-0000-0000-0000-000000000000", "test message");
     expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSocketPath
+// ---------------------------------------------------------------------------
+
+describe("getSocketPath", () => {
+  test("returns expected path format", () => {
+    const path = getSocketPath("signal-chat", "+491234");
+    expect(path).toBe("/tmp/.trigger-signal-chat-_491234.sock");
+  });
+
+  test("sanitizes special characters in session key", () => {
+    const path = getSocketPath("email-handler", "thread/4821@mail.com");
+    expect(path).toBe("/tmp/.trigger-email-handler-thread_4821_mail_com.sock");
+  });
+
+  test("handles _default key", () => {
+    const path = getSocketPath("deploy-hook", "_default");
+    expect(path).toBe("/tmp/.trigger-deploy-hook-_default.sock");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createMessageChannel
+// ---------------------------------------------------------------------------
+
+describe("createMessageChannel", () => {
+  test("yields pushed messages in order", async () => {
+    const ch = createMessageChannel("test-session", 60000);
+    ch.push("first message");
+    ch.push("second message");
+
+    const iter = ch.generator[Symbol.asyncIterator]();
+
+    const msg1 = await iter.next();
+    expect(msg1.done).toBe(false);
+    expect(msg1.value.type).toBe("user");
+    expect(msg1.value.message.role).toBe("user");
+    expect(msg1.value.message.content).toBe("first message");
+    expect(msg1.value.session_id).toBe("test-session");
+
+    const msg2 = await iter.next();
+    expect(msg2.done).toBe(false);
+    expect(msg2.value.message.content).toBe("second message");
+
+    ch.close();
+    const end = await iter.next();
+    expect(end.done).toBe(true);
+  });
+
+  test("waits for messages when queue is empty", async () => {
+    const ch = createMessageChannel("test-session-2", 60000);
+
+    // Push after a delay
+    setTimeout(() => ch.push("delayed message"), 50);
+
+    const iter = ch.generator[Symbol.asyncIterator]();
+    const msg = await iter.next();
+    expect(msg.done).toBe(false);
+    expect(msg.value.message.content).toBe("delayed message");
+
+    ch.close();
+  });
+
+  test("ends after idle timeout", async () => {
+    // Very short timeout for testing
+    const ch = createMessageChannel("test-session-3", 100);
+    ch.push("initial");
+
+    const iter = ch.generator[Symbol.asyncIterator]();
+
+    // Consume the initial message
+    await iter.next();
+
+    // Now wait — should timeout and end
+    const end = await iter.next();
+    expect(end.done).toBe(true);
+  });
+
+  test("close() terminates the generator", async () => {
+    const ch = createMessageChannel("test-session-4", 60000);
+
+    // Start consuming in background
+    const iter = ch.generator[Symbol.asyncIterator]();
+
+    // Close after a short delay
+    setTimeout(() => ch.close(), 50);
+
+    // The iterator should end
+    const result = await iter.next();
+    expect(result.done).toBe(true);
+  });
+
+  test("handles interleaved push and consume", async () => {
+    const ch = createMessageChannel("test-session-5", 60000);
+    const iter = ch.generator[Symbol.asyncIterator]();
+
+    // Push -> consume -> push -> consume
+    ch.push("msg-1");
+    const r1 = await iter.next();
+    expect(r1.value.message.content).toBe("msg-1");
+
+    ch.push("msg-2");
+    const r2 = await iter.next();
+    expect(r2.value.message.content).toBe("msg-2");
+
+    ch.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Socket IPC (startSocketServer + trySocketInject)
+// ---------------------------------------------------------------------------
+
+describe("Socket IPC", () => {
+  let socketPath: string;
+  let server: Server | null = null;
+
+  afterEach(() => {
+    if (server) {
+      cleanupSocket(server, socketPath);
+      server = null;
+    }
+  });
+
+  test("trySocketInject returns false when no socket exists", async () => {
+    const result = await trySocketInject("/tmp/.trigger-nonexistent-test.sock", "hello", "signal", "+491234");
+    expect(result).toBe(false);
+  });
+
+  test("socket server accepts and acknowledges messages", async () => {
+    socketPath = `/tmp/.trigger-test-ipc-${Date.now()}.sock`;
+    const received: string[] = [];
+
+    server = startSocketServer(socketPath, (text) => {
+      received.push(text);
+    });
+
+    // Wait for server to be ready
+    await Bun.sleep(50);
+
+    const ok = await trySocketInject(socketPath, "test message", "signal", "+491234");
+    expect(ok).toBe(true);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toBe("test message");
+  });
+
+  test("socket server handles multiple sequential messages", async () => {
+    socketPath = `/tmp/.trigger-test-multi-${Date.now()}.sock`;
+    const received: string[] = [];
+
+    server = startSocketServer(socketPath, (text) => {
+      received.push(text);
+    });
+
+    await Bun.sleep(50);
+
+    const ok1 = await trySocketInject(socketPath, "msg-1", "signal", "+491234");
+    const ok2 = await trySocketInject(socketPath, "msg-2", "email", "thread-42");
+    const ok3 = await trySocketInject(socketPath, "msg-3", "webhook", "repo-main");
+
+    expect(ok1).toBe(true);
+    expect(ok2).toBe(true);
+    expect(ok3).toBe(true);
+    expect(received).toEqual(["msg-1", "msg-2", "msg-3"]);
+  });
+
+  test("socket server pushes to message channel", async () => {
+    socketPath = `/tmp/.trigger-test-channel-${Date.now()}.sock`;
+
+    const ch = createMessageChannel("test-session-socket", 60000);
+    server = startSocketServer(socketPath, (text) => {
+      ch.push(text);
+    });
+
+    await Bun.sleep(50);
+
+    // Inject via socket
+    const ok = await trySocketInject(socketPath, "injected via socket", "signal", "+491234");
+    expect(ok).toBe(true);
+
+    // Read from channel
+    const iter = ch.generator[Symbol.asyncIterator]();
+    const msg = await iter.next();
+    expect(msg.done).toBe(false);
+    expect(msg.value.message.content).toBe("injected via socket");
+
+    ch.close();
+  });
+
+  test("cleanupSocket removes socket file", async () => {
+    socketPath = `/tmp/.trigger-test-cleanup-${Date.now()}.sock`;
+    server = startSocketServer(socketPath, () => {});
+    await Bun.sleep(50);
+
+    expect(existsSync(socketPath)).toBe(true);
+    cleanupSocket(server, socketPath);
+    server = null; // Already cleaned up
+
+    expect(existsSync(socketPath)).toBe(false);
   });
 });
