@@ -20,6 +20,8 @@ import {
   recordMetrics,
   checkCorruptedSession,
   tryIpcInject,
+  enqueueMessage,
+  drainPendingMessages,
   type TriggerConfig,
   type MetricsData,
 } from "./trigger-runner.ts";
@@ -44,6 +46,17 @@ function createInMemoryDb(): Database {
       session_mode TEXT DEFAULT 'ephemeral',
       enabled INTEGER DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS pending_trigger_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_name TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'internal',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_trigger_messages
+      ON pending_trigger_messages(trigger_name, session_key, created_at);
 
     CREATE TABLE IF NOT EXISTS session_metrics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -544,5 +557,65 @@ describe("tryIpcInject", () => {
     // Use a session ID that definitely doesn't have a socket
     const result = await tryIpcInject("00000000-0000-0000-0000-000000000000", "test message");
     expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enqueueMessage / drainPendingMessages
+// ---------------------------------------------------------------------------
+
+describe("enqueueMessage and drainPendingMessages", () => {
+  test("enqueueMessage stores and returns id", () => {
+    const db = createInMemoryDb();
+    const id = enqueueMessage(db, "signal-chat", "+491234", '{"msg":"hi"}', "signal");
+    expect(id).toBeGreaterThan(0);
+  });
+
+  test("drainPendingMessages returns messages in chronological order", () => {
+    const db = createInMemoryDb();
+    enqueueMessage(db, "signal-chat", "+491234", '{"msg":"first"}', "signal");
+    enqueueMessage(db, "signal-chat", "+491234", '{"msg":"second"}', "signal");
+    enqueueMessage(db, "signal-chat", "+491234", '{"msg":"third"}', "signal");
+
+    const msgs = drainPendingMessages(db, "signal-chat", "+491234");
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0].payload).toBe('{"msg":"first"}');
+    expect(msgs[1].payload).toBe('{"msg":"second"}');
+    expect(msgs[2].payload).toBe('{"msg":"third"}');
+    // IDs should be ascending
+    expect(msgs[0].id).toBeLessThan(msgs[1].id);
+    expect(msgs[1].id).toBeLessThan(msgs[2].id);
+  });
+
+  test("drainPendingMessages deletes after read (second drain returns empty)", () => {
+    const db = createInMemoryDb();
+    enqueueMessage(db, "signal-chat", "+491234", '{"msg":"once"}', "signal");
+
+    const first = drainPendingMessages(db, "signal-chat", "+491234");
+    expect(first).toHaveLength(1);
+
+    const second = drainPendingMessages(db, "signal-chat", "+491234");
+    expect(second).toHaveLength(0);
+  });
+
+  test("drainPendingMessages is scoped to trigger+key", () => {
+    const db = createInMemoryDb();
+    enqueueMessage(db, "signal-chat", "+491234", '{"msg":"for-1234"}', "signal");
+    enqueueMessage(db, "signal-chat", "+495678", '{"msg":"for-5678"}', "signal");
+    enqueueMessage(db, "email-handler", "+491234", '{"msg":"email"}', "email");
+
+    const msgs1234 = drainPendingMessages(db, "signal-chat", "+491234");
+    expect(msgs1234).toHaveLength(1);
+    expect(msgs1234[0].payload).toBe('{"msg":"for-1234"}');
+
+    // Other key should still have its message
+    const msgs5678 = drainPendingMessages(db, "signal-chat", "+495678");
+    expect(msgs5678).toHaveLength(1);
+    expect(msgs5678[0].payload).toBe('{"msg":"for-5678"}');
+
+    // Other trigger should still have its message
+    const msgsEmail = drainPendingMessages(db, "email-handler", "+491234");
+    expect(msgsEmail).toHaveLength(1);
+    expect(msgsEmail[0].payload).toBe('{"msg":"email"}');
   });
 });

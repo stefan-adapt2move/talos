@@ -291,6 +291,50 @@ export function recordMetrics(db: Database, data: MetricsData): void {
 }
 
 /**
+ * Queue a message for later delivery when the session lock is held.
+ */
+export function enqueueMessage(
+  db: Database,
+  triggerName: string,
+  sessionKey: string,
+  payload: string,
+  channel: string
+): number {
+  const row = db.prepare(`
+    INSERT INTO pending_trigger_messages (trigger_name, session_key, payload, channel)
+    VALUES (?, ?, ?, ?)
+    RETURNING id
+  `).get(triggerName, sessionKey, payload, channel) as { id: number };
+  return row.id;
+}
+
+/**
+ * Drain all pending messages for a trigger+key, returning them in chronological order.
+ * Messages are deleted from the queue after reading.
+ */
+export function drainPendingMessages(
+  db: Database,
+  triggerName: string,
+  sessionKey: string
+): Array<{ id: number; payload: string; channel: string; created_at: string }> {
+  const rows = db.prepare(`
+    SELECT id, payload, channel, created_at
+    FROM pending_trigger_messages
+    WHERE trigger_name = ? AND session_key = ?
+    ORDER BY created_at ASC, id ASC
+  `).all(triggerName, sessionKey) as Array<{ id: number; payload: string; channel: string; created_at: string }>;
+
+  if (rows.length > 0) {
+    db.prepare(`
+      DELETE FROM pending_trigger_messages
+      WHERE trigger_name = ? AND session_key = ?
+    `).run(triggerName, sessionKey);
+  }
+
+  return rows;
+}
+
+/**
  * Attempt to inject a message into a running Claude session via IPC socket.
  * Returns true if the injection succeeded, false otherwise.
  */
@@ -494,6 +538,18 @@ function openDb(): Database {
   const db = new Database(DB_PATH, { create: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pending_trigger_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_name TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'internal',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_trigger_messages
+      ON pending_trigger_messages(trigger_name, session_key, created_at);
+  `);
   return db;
 }
 
@@ -773,7 +829,9 @@ export async function main(): Promise<void> {
   }
 
   if (!lockAcquired) {
-    log.log(`Trigger ${triggerName} (key=${sessionKey}) locked — skipping spawn`);
+    log.log(`Trigger ${triggerName} (key=${sessionKey}) locked — queuing message for next session`);
+    const msgId = enqueueMessage(db, triggerName, sessionKey, payload, channel);
+    log.log(`Queued message id=${msgId} for ${triggerName} (key=${sessionKey})`);
     process.exit(0);
   }
 
@@ -805,6 +863,18 @@ export async function main(): Promise<void> {
       releaseLock();
       process.exit(0);
     }
+  }
+
+  // --- Drain any queued messages that arrived while session was locked ---
+  const pendingMessages = drainPendingMessages(db, triggerName, sessionKey);
+  if (pendingMessages.length > 0) {
+    log.log(`Draining ${pendingMessages.length} queued message(s) for ${triggerName} (key=${sessionKey})`);
+    const pendingBlock = pendingMessages
+      .map((m) => {
+        return `<message from="${sessionKey}" queued-at="${m.created_at}">\n${m.payload}\n</message>`;
+      })
+      .join("\n\n");
+    prompt = `<queued-messages note="These messages arrived while the previous session was still processing. Process them in chronological order before the latest message.">\n${pendingBlock}\n</queued-messages>\n\n${prompt}`;
   }
 
   log.log(`Trigger firing: ${triggerName} (mode=${sessionMode}, key=${sessionKey}, channel=${channel})`);
