@@ -63,7 +63,7 @@ def load_config():
     return {
         "whitelist": cfg.get("whitelist", []),
         "stt_url": os.environ.get("STT_URL", stt_cfg.get("url", "http://stt:5092/v1/audio/transcriptions")),
-        "stt_enabled": stt_cfg.get("enabled", True),
+        "stt_enabled": os.environ.get("STT_ENABLED", str(stt_cfg.get("enabled", True))).lower() not in ("false", "0", "no"),
     }
 
 

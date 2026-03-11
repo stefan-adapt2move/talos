@@ -54,5 +54,12 @@ failure_handling:
   backoff_max_seconds: 900 # Cap at 15 minutes
   notification_threshold_minutes: 30
 
+# Speech-to-Text (STT) service
+# Used for transcribing voice messages from Signal/WhatsApp.
+# Default sidecar: Parakeet (docker-compose.yml). Override for shared/external STT.
+stt:
+  enabled: true
+  url: "http://stt:5092/v1/audio/transcriptions" # Override with STT_URL env var
+
 webhook:
   relay_url: "https://webhooks.unclutter.pro"  # Base URL for webhook relay (smee.io compatible)
