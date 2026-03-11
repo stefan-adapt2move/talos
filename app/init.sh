@@ -130,6 +130,29 @@ if [ "$HOME" = "/home/agent" ] && [ ! -f "$SELF_HEAL_MARKER" ]; then
   fi
 fi
 
+# Migrate Claude Code project directories: /home/atlas → /home/agent
+# Claude Code stores sessions under .claude/projects/<cwd-slugified>/
+# After the home dir rename, old sessions live under -home-atlas but Claude
+# now looks under -home-agent. Merge old → new so session resume works.
+CLAUDE_PROJECTS="$HOME/.claude/projects"
+OLD_PROJECT_DIR="$CLAUDE_PROJECTS/-home-atlas"
+NEW_PROJECT_DIR="$CLAUDE_PROJECTS/-home-agent"
+if [ -d "$OLD_PROJECT_DIR" ] && [ "$HOME" = "/home/agent" ]; then
+  mkdir -p "$NEW_PROJECT_DIR"
+  # Move all session files/dirs, skip conflicts (new wins)
+  for item in "$OLD_PROJECT_DIR"/*; do
+    [ -e "$item" ] || continue
+    base=$(basename "$item")
+    if [ ! -e "$NEW_PROJECT_DIR/$base" ]; then
+      mv "$item" "$NEW_PROJECT_DIR/$base"
+    fi
+  done
+  # Remove old dir if empty
+  rmdir "$OLD_PROJECT_DIR" 2>/dev/null && echo "  Migrated Claude projects: -home-atlas → -home-agent" || \
+    echo "  Partially migrated Claude projects (some files remain in -home-atlas)"
+fi
+
+
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
 DB="$WORKSPACE/.index/atlas.db"
