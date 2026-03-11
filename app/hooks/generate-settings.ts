@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Generate Claude Code settings.json from Atlas config.yml.
+ * Generate Claude Code settings.json from agent config.yml.
  * Reads model preferences and produces the hooks configuration.
  * Run from init.sh on every container start.
  */

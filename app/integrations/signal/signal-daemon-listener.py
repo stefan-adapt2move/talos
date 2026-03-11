@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Signal daemon listener for Atlas.
+Signal daemon listener.
 
 Connects to signal-cli's UNIX socket, reads JSON-RPC notifications,
 and calls 'signal incoming' for each received message.

@@ -5,10 +5,10 @@ description: How to create, structure, and maintain skills. Use when creating a 
 
 # Skills
 
-Skills are structured knowledge packs that teach Atlas how to handle specific domains — document generation, trigger management, dependency installation, design, etc. They are loaded on demand when relevant to the current task.
+Skills are structured knowledge packs that teach the agent how to handle specific domains — document generation, trigger management, dependency installation, design, etc. They are loaded on demand when relevant to the current task.
 
 Skills use **progressive disclosure** (three levels):
-1. **Frontmatter** — always loaded in the system prompt; tells Atlas *when* to use the skill
+1. **Frontmatter** — always loaded in the system prompt; tells the agent *when* to use the skill
 2. **SKILL.md body** — loaded when the skill is triggered; contains full instructions
 3. **Linked files** — `references/`, `scripts/`, `assets/` loaded only when needed
 
@@ -67,7 +67,7 @@ description: What it does. Use when user asks to [specific triggers].
 
 #### The `description` field
 
-This is the most important part — it determines when Atlas loads the skill. Structure it as:
+This is the most important part — it determines when the agent loads the skill. Structure it as:
 
 ```
 [What it does] + [When to use it] + [Key capabilities]

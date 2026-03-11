@@ -1,13 +1,13 @@
 ---
 name: mcp-install
-description: How to install and configure MCP servers in Atlas. Use when adding new MCP tools, configuring MCPs for specific session types, or managing MCP config files.
+description: How to install and configure MCP servers. Use when adding new MCP tools, configuring MCPs for specific session types, or managing MCP config files.
 ---
 
 # Installing MCP Servers
 
 ## How MCP Config Works
 
-**Trigger sessions** (the main Atlas sessions) load MCP servers programmatically:
+**Trigger sessions** (the main agent sessions) load MCP servers programmatically:
 
 1. **System servers** (work, memory) — always loaded, built into `trigger-runner`
 2. **User servers** — loaded from `~/.atlas-mcp/user.json` and `~/.mcp.json` (both are checked; pick one)

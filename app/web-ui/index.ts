@@ -14,6 +14,7 @@ import { homedir } from "os";
 import { getDb } from "../atlas-mcp/db";
 
 // --- Config ---
+const AGENT_NAME = process.env.AGENT_NAME || "Atlas";
 const WS = process.env.HOME!;
 const MEMORY = `${WS}/memory`;
 const IDENTITY = `${WS}/IDENTITY.md`;
@@ -94,7 +95,7 @@ function layout(
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${safe(title)} - Atlas</title>
+<title>${safe(title)} - ${safe(AGENT_NAME)}</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -167,7 +168,7 @@ pre{background:#1a1b2e;border:1px solid #3a3b55;border-radius:4px;padding:12px;o
 .chat-thinking summary{padding:6px 12px;cursor:pointer;color:#666;font-size:11px;font-style:italic}
 .chat-thinking pre{margin:0;padding:8px 12px;font-size:11px;max-height:200px;overflow-y:auto;color:#888}
 </style></head><body>
-<nav><div class="logo">ATLAS</div>${links}</nav>
+<nav><div class="logo">${safe(AGENT_NAME).toUpperCase()}</div>${links}</nav>
 <main${mainStyle ? ` style="${mainStyle}"` : ""}>${content}</main>
 </body></html>`;
 }
@@ -1353,4 +1354,4 @@ export default {
   fetch: app.fetch,
 };
 
-console.log("Atlas Web-UI running on http://localhost:3000");
+console.log(`${AGENT_NAME} Web-UI running on http://localhost:3000`);
