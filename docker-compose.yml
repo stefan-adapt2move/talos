@@ -13,13 +13,14 @@ services:
       # - AGENT_NAME=Atlas  # Display name for the agent (UI, logs, prompts)
       # Uncomment for API key auth (alternative to OAuth):
       # - ANTHROPIC_API_KEY=sk-ant-...
+      # - STT_URL=http://stt:5092/v1/audio/transcriptions  # External STT service URL (overrides config.yml)
     ports:
       - "127.0.0.1:8080:8080"
     networks:
       - atlas
 
-  # Speech-to-Text sidecar (Parakeet TDT v3, Whisper-compatible API)
-  # First start downloads the ONNX model (~670MB).
+  # Optional: Speech-to-Text sidecar (Parakeet TDT v3, Whisper-compatible API).
+  # Remove if using an external/shared STT service. First start downloads ONNX model (~670MB).
   stt:
     image: ghcr.io/achetronic/parakeet:latest
     container_name: atlas-stt
