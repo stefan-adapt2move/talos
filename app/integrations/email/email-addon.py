@@ -25,6 +25,7 @@ import imaplib
 import json
 import os
 import re
+import select
 import signal
 import smtplib
 import sqlite3
@@ -75,6 +76,7 @@ def load_config():
         "folder": os.environ.get("EMAIL_FOLDER", cfg.get("folder", "INBOX")),
         "whitelist": cfg.get("whitelist", []),
         "mark_read": cfg.get("mark_read", True),
+        "idle_timeout": int(os.environ.get("EMAIL_IDLE_TIMEOUT", cfg.get("idle_timeout", 1500))),
     }
 
     if not config["password"] and config["password_file"]:
@@ -388,7 +390,133 @@ def write_to_atlas_inbox(sender, content, thread_id):
     return msg_id
 
 
-# --- POLL command ---
+# --- Shared fetch logic ---
+
+def _fetch_new_emails(mail, db, config):
+    """Fetch and process new emails from an open IMAP connection.
+
+    Reusable by both cmd_poll (--once) and cmd_poll_idle (continuous IDLE).
+    Returns the number of new emails processed.
+    """
+    row = db.execute("SELECT value FROM state WHERE key='last_uid'").fetchone()
+    last_uid = int(row[0]) if row and row[0].isdigit() else 0
+
+    # Search for new emails
+    if last_uid > 0:
+        status, data = mail.uid("search", None, f"UID {last_uid + 1}:*")
+    else:
+        status, data = mail.uid("search", None, "UNSEEN")
+
+    if status != "OK" or not data[0]:
+        return 0
+
+    uids = data[0].split()
+    print(f"[{datetime.now()}] Found {len(uids)} new email(s)")
+
+    max_uid = last_uid
+    trigger_queue = []  # Collect triggers to fire after all emails are stored
+    processed = 0
+
+    for uid_bytes in uids:
+        uid = uid_bytes.decode()
+        uid_int = int(uid)
+
+        if uid_int <= last_uid:
+            continue
+
+        status, msg_data = mail.uid("fetch", uid, "(RFC822)")
+        if status != "OK":
+            continue
+
+        raw = msg_data[0][1]
+        msg = emaillib.message_from_bytes(raw)
+
+        sender = msg.get("From", "unknown")
+        subject = msg.get("Subject", "(no subject)")
+        body = get_body(msg)
+        thread_id = extract_thread_id(msg, db)
+        message_id_hdr = msg.get("Message-ID", "").strip()
+
+        if not is_whitelisted(sender, config["whitelist"]):
+            print(f"[{datetime.now()}] Blocked email from {sender}")
+            max_uid = max(max_uid, uid_int)
+            continue
+
+        # 1. Update thread state in email DB
+        thread_info = update_thread(db, thread_id, msg)
+
+        # 1b. Extract attachments
+        attachments = extract_attachments(msg, thread_id)
+
+        # 2. Store email in email DB
+        _, sender_addr = emaillib.utils.parseaddr(sender)
+        db.execute("""
+            INSERT INTO emails (thread_id, message_id, direction, sender, subject, body)
+            VALUES (?, ?, 'in', ?, ?, ?)
+        """, (thread_id, message_id_hdr, sender_addr, subject, body[:8000]))
+
+        # 2b. Save as searchable file
+        save_email_file(thread_id, sender, subject, msg.get("Date", ""), body, attachments)
+
+        # 3. Write to agent inbox
+        inbox_content = f"From: {sender}\nSubject: {subject}\n\n{body[:4000]}"
+        if attachments:
+            att_summary = "\n".join(f"  - {a['filename']} ({a['content_type']}, {a['size']} bytes): {a['path']}" for a in attachments)
+            inbox_content += f"\n\nAttachments:\n{att_summary}"
+        inbox_msg_id = write_to_atlas_inbox(sender, inbox_content, thread_id)
+
+        # Update email record with inbox msg id
+        db.execute("UPDATE emails SET inbox_msg_id = ? WHERE rowid = last_insert_rowid()", (inbox_msg_id,))
+
+        print(f"[{datetime.now()}] Email from {sender}: {subject[:60]} "
+              f"(thread={thread_id}, inbox={inbox_msg_id})")
+
+        # 4. Queue trigger (fire after all emails stored)
+        payload_data = {
+            "inbox_message_id": inbox_msg_id,
+            "sender": sender,
+            "subject": subject,
+            "body": body[:4000],
+            "thread_id": thread_id,
+            "message_id": message_id_hdr,
+            "date": msg.get("Date", ""),
+        }
+        if attachments:
+            payload_data["attachments"] = [
+                {"filename": a["filename"], "content_type": a["content_type"],
+                 "size": a["size"], "path": a["path"]} for a in attachments
+            ]
+        payload = json.dumps(payload_data)
+        trigger_queue.append((payload, thread_id))
+
+        if config["mark_read"]:
+            mail.uid("store", uid, "+FLAGS", "\\Seen")
+
+        max_uid = max(max_uid, uid_int)
+        processed += 1
+
+    # Persist UID state
+    if max_uid > last_uid:
+        db.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('last_uid', ?)", (str(max_uid),))
+
+    db.commit()
+
+    # Fire triggers non-blocking (each thread gets its own trigger session)
+    for payload, thread_id in trigger_queue:
+        try:
+            subprocess.Popen(
+                [TRIGGER_SCRIPT, TRIGGER_NAME, payload, thread_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print(f"[{datetime.now()}] Trigger fired for thread {thread_id}")
+        except Exception as e:
+            print(f"[{datetime.now()}] Failed to fire trigger for {thread_id}: {e}")
+
+    return processed
+
+
+# --- POLL command (--once mode) ---
 
 def cmd_poll(config, once=False):
     """Fetch new emails from IMAP, store in DB, write to inbox, fire triggers."""
@@ -398,127 +526,14 @@ def cmd_poll(config, once=False):
 
     db = get_email_db(config)
 
-    # Get last UID
-    row = db.execute("SELECT value FROM state WHERE key='last_uid'").fetchone()
-    last_uid = int(row[0]) if row and row[0].isdigit() else 0
-
     try:
         mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
         mail.login(config["username"], config["password"])
         mail.select(config["folder"])
 
-        # Search for new emails
-        if last_uid > 0:
-            status, data = mail.uid("search", None, f"UID {last_uid + 1}:*")
-        else:
-            status, data = mail.uid("search", None, "UNSEEN")
+        _fetch_new_emails(mail, db, config)
 
-        if status != "OK" or not data[0]:
-            mail.logout()
-            db.close()
-            return
-
-        uids = data[0].split()
-        print(f"[{datetime.now()}] Found {len(uids)} new email(s)")
-
-        max_uid = last_uid
-        trigger_queue = []  # Collect triggers to fire after all emails are stored
-
-        for uid_bytes in uids:
-            uid = uid_bytes.decode()
-            uid_int = int(uid)
-
-            if uid_int <= last_uid:
-                continue
-
-            status, msg_data = mail.uid("fetch", uid, "(RFC822)")
-            if status != "OK":
-                continue
-
-            raw = msg_data[0][1]
-            msg = emaillib.message_from_bytes(raw)
-
-            sender = msg.get("From", "unknown")
-            subject = msg.get("Subject", "(no subject)")
-            body = get_body(msg)
-            thread_id = extract_thread_id(msg, db)
-            message_id_hdr = msg.get("Message-ID", "").strip()
-
-            if not is_whitelisted(sender, config["whitelist"]):
-                print(f"[{datetime.now()}] Blocked email from {sender}")
-                max_uid = max(max_uid, uid_int)
-                continue
-
-            # 1. Update thread state in email DB
-            thread_info = update_thread(db, thread_id, msg)
-
-            # 1b. Extract attachments
-            attachments = extract_attachments(msg, thread_id)
-
-            # 2. Store email in email DB
-            _, sender_addr = emaillib.utils.parseaddr(sender)
-            db.execute("""
-                INSERT INTO emails (thread_id, message_id, direction, sender, subject, body)
-                VALUES (?, ?, 'in', ?, ?, ?)
-            """, (thread_id, message_id_hdr, sender_addr, subject, body[:8000]))
-
-            # 2b. Save as searchable file
-            save_email_file(thread_id, sender, subject, msg.get("Date", ""), body, attachments)
-
-            # 3. Write to agent inbox
-            inbox_content = f"From: {sender}\nSubject: {subject}\n\n{body[:4000]}"
-            if attachments:
-                att_summary = "\n".join(f"  - {a['filename']} ({a['content_type']}, {a['size']} bytes): {a['path']}" for a in attachments)
-                inbox_content += f"\n\nAttachments:\n{att_summary}"
-            inbox_msg_id = write_to_atlas_inbox(sender, inbox_content, thread_id)
-
-            # Update email record with inbox msg id
-            db.execute("UPDATE emails SET inbox_msg_id = ? WHERE rowid = last_insert_rowid()", (inbox_msg_id,))
-
-            print(f"[{datetime.now()}] Email from {sender}: {subject[:60]} "
-                  f"(thread={thread_id}, inbox={inbox_msg_id})")
-
-            # 4. Queue trigger (fire after all emails stored)
-            payload_data = {
-                "inbox_message_id": inbox_msg_id,
-                "sender": sender,
-                "subject": subject,
-                "body": body[:4000],
-                "thread_id": thread_id,
-                "message_id": message_id_hdr,
-                "date": msg.get("Date", ""),
-            }
-            if attachments:
-                payload_data["attachments"] = [
-                    {"filename": a["filename"], "content_type": a["content_type"],
-                     "size": a["size"], "path": a["path"]} for a in attachments
-                ]
-            payload = json.dumps(payload_data)
-            trigger_queue.append((payload, thread_id))
-
-            if config["mark_read"]:
-                mail.uid("store", uid, "+FLAGS", "\\Seen")
-
-            max_uid = max(max_uid, uid_int)
-
-        # Persist UID state
-        if max_uid > last_uid:
-            db.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('last_uid', ?)", (str(max_uid),))
-
-        db.commit()
         mail.logout()
-
-        # Fire triggers non-blocking (each thread gets its own trigger session)
-        for payload, thread_id in trigger_queue:
-            try:
-                subprocess.Popen(
-                    [TRIGGER_SCRIPT, TRIGGER_NAME, payload, thread_id],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                print(f"[{datetime.now()}] Trigger fired for thread {thread_id}")
-            except Exception as e:
-                print(f"[{datetime.now()}] Failed to fire trigger for {thread_id}: {e}")
 
     except imaplib.IMAP4.error as e:
         print(f"[{datetime.now()}] IMAP error: {e}")
@@ -526,6 +541,185 @@ def cmd_poll(config, once=False):
         print(f"[{datetime.now()}] Error: {e}")
     finally:
         db.close()
+
+
+# --- IMAP IDLE helpers ---
+
+def _imap_idle(mail, timeout=1500):
+    """Enter IMAP IDLE mode (RFC 2177).
+
+    Sends the IDLE command and waits for server notifications using select().
+    Returns True if new mail was detected (EXISTS/RECENT), False on timeout.
+    Raises ConnectionError if the server closes the connection.
+    """
+    tag = mail._new_tag()
+    mail.send(tag + b' IDLE\r\n')
+    resp = mail.readline()
+    if not resp.startswith(b'+'):
+        # Server rejected IDLE — should not happen if capability was checked
+        return False
+
+    sock = mail.socket()
+    deadline = time.time() + timeout
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        ready = select.select([sock], [], [], min(remaining, 30))
+        if ready[0]:
+            data = sock.recv(4096)
+            if not data:
+                raise ConnectionError("IMAP connection closed during IDLE")
+            if b'EXISTS' in data or b'RECENT' in data:
+                # New mail — exit IDLE
+                mail.send(b'DONE\r\n')
+                while True:
+                    line = mail.readline()
+                    if line.startswith(tag):
+                        break
+                return True
+
+    # Timeout — exit IDLE gracefully
+    mail.send(b'DONE\r\n')
+    while True:
+        line = mail.readline()
+        if line.startswith(tag):
+            break
+    return False
+
+
+def _server_supports_idle(mail):
+    """Check if the IMAP server advertises the IDLE capability."""
+    status, caps = mail.capability()
+    if status != "OK":
+        return False
+    cap_str = b" ".join(caps).upper()
+    return b"IDLE" in cap_str
+
+
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
+
+def cmd_poll_idle(config):
+    """Continuous email polling using IMAP IDLE (persistent connection).
+
+    Opens a single IMAP connection, fetches any pending emails, then enters
+    IDLE mode to wait for server-side push notifications. Re-enters IDLE
+    every idle_timeout seconds (default 25 min) to stay within the RFC 2177
+    29-minute server limit. Auto-reconnects on connection drops.
+
+    Falls back to traditional polling if the server does not support IDLE.
+    """
+    global _shutdown_requested
+    _shutdown_requested = False
+
+    idle_timeout = config.get("idle_timeout", 1500)
+    poll_fallback_interval = int(os.environ.get("EMAIL_POLL_INTERVAL", 120))
+
+    def _handle_signal(signum, frame):
+        global _shutdown_requested
+        sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+        print(f"[{datetime.now()}] {sig_name} received, shutting down gracefully...")
+        _shutdown_requested = True
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    print(f"[{datetime.now()}] Email IDLE poller starting "
+          f"(host={config['imap_host']}, idle_timeout={idle_timeout}s)")
+
+    while not _shutdown_requested:
+        mail = None
+        db = None
+        try:
+            db = get_email_db(config)
+
+            # Connect
+            print(f"[{datetime.now()}] Connecting to {config['imap_host']}...")
+            mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
+            mail.login(config["username"], config["password"])
+            mail.select(config["folder"])
+
+            # Check IDLE support
+            if not _server_supports_idle(mail):
+                print(f"[{datetime.now()}] Server does not support IDLE. "
+                      f"Falling back to polling (interval={poll_fallback_interval}s)")
+                mail.logout()
+                db.close()
+                # Fall back to traditional polling loop
+                while not _shutdown_requested:
+                    db = get_email_db(config)
+                    try:
+                        mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
+                        mail.login(config["username"], config["password"])
+                        mail.select(config["folder"])
+                        _fetch_new_emails(mail, db, config)
+                        mail.logout()
+                    except Exception as e:
+                        print(f"[{datetime.now()}] Poll error: {e}")
+                    finally:
+                        db.close()
+                    # Interruptible sleep
+                    for _ in range(poll_fallback_interval):
+                        if _shutdown_requested:
+                            break
+                        time.sleep(1)
+                return
+
+            print(f"[{datetime.now()}] IDLE mode supported — using persistent connection")
+
+            # Initial fetch of any pending emails
+            _fetch_new_emails(mail, db, config)
+
+            # IDLE loop
+            while not _shutdown_requested:
+                print(f"[{datetime.now()}] Entering IDLE mode (timeout={idle_timeout}s)...")
+                try:
+                    new_mail = _imap_idle(mail, timeout=idle_timeout)
+                except ConnectionError as e:
+                    print(f"[{datetime.now()}] Connection lost during IDLE: {e}")
+                    break  # Will reconnect in outer loop
+
+                if _shutdown_requested:
+                    break
+
+                if new_mail:
+                    print(f"[{datetime.now()}] New mail detected via IDLE")
+                    # Re-select to refresh mailbox state after IDLE
+                    mail.select(config["folder"])
+                    _fetch_new_emails(mail, db, config)
+                else:
+                    # Timeout — send NOOP to keep connection alive, then re-enter IDLE
+                    try:
+                        mail.noop()
+                    except Exception:
+                        print(f"[{datetime.now()}] NOOP failed, reconnecting...")
+                        break  # Will reconnect in outer loop
+
+            # Clean disconnect
+            if mail:
+                try:
+                    mail.logout()
+                except Exception:
+                    pass
+
+        except (imaplib.IMAP4.error, ConnectionError, OSError) as e:
+            print(f"[{datetime.now()}] Connection error: {e}")
+        except Exception as e:
+            print(f"[{datetime.now()}] Unexpected error: {e}")
+        finally:
+            if db:
+                db.close()
+
+        if not _shutdown_requested:
+            print(f"[{datetime.now()}] Reconnecting in 30 seconds...")
+            for _ in range(30):
+                if _shutdown_requested:
+                    break
+                time.sleep(1)
+
+    print(f"[{datetime.now()}] Email IDLE poller stopped.")
 
 
 # --- SEND command ---
@@ -750,7 +944,7 @@ def main():
         epilog="""
 Examples:
   email-addon.py poll --once          # Check IMAP once
-  email-addon.py poll                 # Continuous polling
+  email-addon.py poll                 # Continuous via IMAP IDLE
   email-addon.py send alice@x.com "Subject" "Body text"
   email-addon.py reply <thread_id> "Reply body"
   email-addon.py threads              # List all threads
@@ -793,12 +987,7 @@ Examples:
         if args.once:
             cmd_poll(config, once=True)
         else:
-            interval = int(os.environ.get("EMAIL_POLL_INTERVAL", 120))
-            print(f"[{datetime.now()}] Email poller starting "
-                  f"(host={config['imap_host']}, interval={interval}s)")
-            while True:
-                cmd_poll(config, once=True)
-                time.sleep(interval)
+            cmd_poll_idle(config)
 
     elif args.command == "send":
         cmd_send(config, args.to, args.subject, args.body,
