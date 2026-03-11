@@ -40,8 +40,8 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access
-RUN useradd -m -s /bin/bash -G sudo atlas \
-  && echo "atlas ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/atlas
+RUN useradd -m -s /bin/bash -G sudo agent \
+  && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent
 
 # Install Node.js 22 (required by QMD)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -57,8 +57,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
   chmod +x /usr/local/bin/bun && \
   ln -sf /usr/local/bin/bun /usr/local/bin/bunx && \
   rm -rf /tmp/bun.zip /tmp/bun-extract
-ENV PATH="/atlas/app/bin:/home/atlas/bin:${PATH}"
-ENV HOME=/home/atlas
+ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
+ENV HOME=/home/agent
 
 # Install supercronic (cron replacement)
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -98,17 +98,17 @@ RUN mkdir -p /atlas/app/hooks \
   /atlas/app/atlas-mcp \
   /atlas/app/web-ui \
   /atlas/app/defaults/skills \
-  /home/atlas/memory/projects \
-  /home/atlas/memory/journal \
-  /home/atlas/.index \
-  /home/atlas/projects \
-  /home/atlas/skills \
-  /home/atlas/agents \
-  /home/atlas/mcps \
-  /home/atlas/triggers \
-  /home/atlas/secrets \
-  /home/atlas/helpers \
-  /home/atlas/.qmd-cache \
+  /home/agent/memory/projects \
+  /home/agent/memory/journal \
+  /home/agent/.index \
+  /home/agent/projects \
+  /home/agent/skills \
+  /home/agent/agents \
+  /home/agent/mcps \
+  /home/agent/triggers \
+  /home/agent/secrets \
+  /home/agent/helpers \
+  /home/agent/.qmd-cache \
   /atlas/logs
 
 # Copy application code
@@ -150,15 +150,18 @@ COPY app/nginx.conf /etc/nginx/sites-available/atlas
 RUN ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default
 
-# Grant atlas user write access to image-layer directories.
-# Volume mounts are fixed at runtime by entrypoint.sh.
-RUN chown -R atlas:atlas /atlas /home/atlas \
-  && chown -R atlas:atlas /var/run /var/log/nginx /var/lib/nginx \
-  && chown -R atlas:atlas /etc/supervisor
+# Backwards-compat symlink: /home/atlas → /home/agent
+RUN ln -s /home/agent /home/atlas
 
-WORKDIR /home/atlas
+# Grant agent user write access to image-layer directories.
+# Volume mounts are fixed at runtime by entrypoint.sh.
+RUN chown -R agent:agent /atlas /home/agent \
+  && chown -R agent:agent /var/run /var/log/nginx /var/lib/nginx \
+  && chown -R agent:agent /etc/supervisor
+
+WORKDIR /home/agent
 
 EXPOSE 8080
 
-# Entrypoint runs as root to fix volume permissions, then drops to atlas
+# Entrypoint runs as root to fix volume permissions, then drops to agent
 ENTRYPOINT ["/atlas/app/entrypoint.sh"]

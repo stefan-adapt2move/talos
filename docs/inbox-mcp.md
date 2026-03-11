@@ -114,7 +114,7 @@ Acquire a path lock before spawning an agent for file-modifying work. Prevents c
 
 ```typescript
 {
-  path: string  // Directory to lock (e.g. '/home/atlas/projects/myapp')
+  path: string  // Directory to lock (e.g. '/home/agent/projects/myapp')
 }
 ```
 
@@ -145,22 +145,22 @@ Returns: `{ locks: [...] }`
 The trigger session manages path locks directly when delegating file-modifying work to agent teammates:
 
 ```
-1. trigger_session: path_lock("/home/atlas/projects/app")
+1. trigger_session: path_lock("/home/agent/projects/app")
 2. trigger_session: Agent(team_name=..., name="developer", ...)
-   → teammate works on /home/atlas/projects/app
-3. trigger_session: path_unlock("/home/atlas/projects/app")
+   → teammate works on /home/agent/projects/app
+3. trigger_session: path_unlock("/home/agent/projects/app")
 ```
 
 For parallel work on non-overlapping paths:
 
 ```
-trigger_session: path_lock("/home/atlas/projects/frontend")
-trigger_session: path_lock("/home/atlas/projects/backend")
+trigger_session: path_lock("/home/agent/projects/frontend")
+trigger_session: path_lock("/home/agent/projects/backend")
 trigger_session: Agent(team_name=..., name="frontend-dev", ...)
 trigger_session: Agent(team_name=..., name="backend-dev", ...)
    → both teammates work in parallel
-trigger_session: path_unlock("/home/atlas/projects/frontend")
-trigger_session: path_unlock("/home/atlas/projects/backend")
+trigger_session: path_unlock("/home/agent/projects/frontend")
+trigger_session: path_unlock("/home/agent/projects/backend")
 ```
 
 ## Source

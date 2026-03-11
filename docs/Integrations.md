@@ -176,7 +176,7 @@ email:
   smtp_host: "smtp.gmail.com"
   smtp_port: 587
   username: "atlas@example.com"
-  password_file: "/home/atlas/secrets/email-password"
+  password_file: "/home/agent/secrets/email-password"
   folder: "INBOX"
   whitelist: ["alice@example.com", "example.org"]   # or empty
   mark_read: true
@@ -185,8 +185,8 @@ email:
 **2. Store password**:
 
 ```bash
-echo "your-app-password" > /home/atlas/secrets/email-password
-chmod 600 /home/atlas/secrets/email-password
+echo "your-app-password" > /home/agent/secrets/email-password
+chmod 600 /home/agent/secrets/email-password
 ```
 
 For Gmail: use an [App Password](https://myaccount.google.com/apppasswords), not your main password.

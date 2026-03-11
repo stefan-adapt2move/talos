@@ -227,7 +227,7 @@ Agent(subagent_type="general-purpose", model="sonnet", prompt="<detailed task>")
 ### Complex multi-step tasks
 ```
 1. TeamCreate(team_name="<descriptive-name>")
-2. path_lock("/home/atlas/projects/...")  ← if file-modifying work
+2. path_lock("/home/agent/projects/...")  ← if file-modifying work
 3. Agent(team_name=..., name="developer", model="sonnet")
 4. Agent(team_name=..., name="task-reviewer", model="haiku")  ← optional review
 5. Coordinate via SendMessage

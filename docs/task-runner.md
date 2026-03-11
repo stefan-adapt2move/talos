@@ -10,10 +10,10 @@ Before spawning a teammate that modifies files, the trigger session acquires a p
 
 ```
 trigger_session:
-  1. path_lock("/home/atlas/projects/app")
+  1. path_lock("/home/agent/projects/app")
   2. Agent(team_name=..., name="developer", ...)
-     → teammate modifies /home/atlas/projects/app
-  3. path_unlock("/home/atlas/projects/app")
+     → teammate modifies /home/agent/projects/app
+  3. path_unlock("/home/agent/projects/app")
 ```
 
 ## MCP Tools
@@ -23,8 +23,8 @@ trigger_session:
 Acquires a lock on a directory. The lock covers the path and all its subdirectories.
 
 ```typescript
-path_lock({ path: "/home/atlas/projects/myapp" })
-// → { locked: true, path: "/home/atlas/projects/myapp", pid: 1234 }
+path_lock({ path: "/home/agent/projects/myapp" })
+// → { locked: true, path: "/home/agent/projects/myapp", pid: 1234 }
 ```
 
 If there is a conflict, returns an error with details about the blocking lock.
@@ -34,8 +34,8 @@ If there is a conflict, returns an error with details about the blocking lock.
 Releases a previously acquired lock.
 
 ```typescript
-path_unlock({ path: "/home/atlas/projects/myapp" })
-// → { unlocked: true, path: "/home/atlas/projects/myapp" }
+path_unlock({ path: "/home/agent/projects/myapp" })
+// → { unlocked: true, path: "/home/agent/projects/myapp" }
 ```
 
 ### path_lock_status
@@ -44,15 +44,15 @@ Shows all currently active locks.
 
 ```typescript
 path_lock_status()
-// → { locks: [{ locked_path: "/home/atlas/projects/myapp/", pid: 1234, ... }] }
+// → { locks: [{ locked_path: "/home/agent/projects/myapp/", pid: 1234, ... }] }
 ```
 
 ## Conflict Detection
 
 Conflicts are checked bidirectionally:
 
-- A new lock on `/home/atlas/projects/app` is blocked if `/home/atlas/projects` is already locked (ancestor conflict)
-- A new lock on `/home/atlas/projects` is blocked if `/home/atlas/projects/app` is already locked (descendant conflict)
+- A new lock on `/home/agent/projects/app` is blocked if `/home/agent/projects` is already locked (ancestor conflict)
+- A new lock on `/home/agent/projects` is blocked if `/home/agent/projects/app` is already locked (descendant conflict)
 
 Tasks without file modifications don't need a lock and can always run in parallel.
 
@@ -64,13 +64,13 @@ Locks are keyed by PID. The `stop.sh` hook releases any locks held by the curren
 
 ```
 trigger_session:
-  path_lock("/home/atlas/projects/frontend")
-  path_lock("/home/atlas/projects/backend")
+  path_lock("/home/agent/projects/frontend")
+  path_lock("/home/agent/projects/backend")
   Agent(team_name="feature-x", name="frontend-dev", ...)
   Agent(team_name="feature-x", name="backend-dev", ...)
   ↓ (teammates work in parallel on non-overlapping paths)
-  path_unlock("/home/atlas/projects/frontend")
-  path_unlock("/home/atlas/projects/backend")
+  path_unlock("/home/agent/projects/frontend")
+  path_unlock("/home/agent/projects/backend")
 ```
 
 ## Source

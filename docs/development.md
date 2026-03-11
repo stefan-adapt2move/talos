@@ -19,7 +19,7 @@ The Web-UI is available at http://localhost:8080.
 ## OAuth Login (One-Time)
 
 ```bash
-docker run -it --rm -v $(pwd)/volume:/home/atlas atlas claude login
+docker run -it --rm -v $(pwd)/volume:/home/agent atlas claude login
 ```
 
 This stores credentials in `volume/.claude/` for persistence across restarts.
@@ -68,7 +68,7 @@ docker compose exec atlas bash
 ## Database Access
 
 ```bash
-docker compose exec atlas sqlite3 /home/atlas/.index/atlas.db
+docker compose exec atlas sqlite3 /home/agent/.index/atlas.db
 ```
 
 ## Test Webhook Locally
@@ -93,6 +93,6 @@ curl -X POST http://localhost:8080/api/webhook/test-trigger \
 | Path | Purpose |
 |------|---------|
 | `/atlas/app/` | Core code (read-only) |
-| `/home/atlas/` | Persistent data |
+| `/home/agent/` | Persistent data |
 | `/atlas/logs/` | Log files |
-| `/home/atlas/.claude/` | Claude Code config |
+| `/home/agent/.claude/` | Claude Code config |
