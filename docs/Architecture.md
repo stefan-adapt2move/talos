@@ -70,14 +70,14 @@ Teammates can work in parallel on non-overlapping paths. The trigger session man
 2. Spawn teammate via `Agent(team_name=..., ...)`
 3. Call `path_unlock(path)` after the teammate completes
 
-Path conflicts are checked bidirectionally: a lock on `/home/atlas/projects/app` blocks both its ancestors and descendants.
+Path conflicts are checked bidirectionally: a lock on `/home/agent/projects/app` blocks both its ancestors and descendants.
 
 ## Filesystem Layout
 
 | Location | Access | Contents |
 |----------|--------|----------|
 | `/atlas/app/` | Read-only | Core code, hooks, MCP server, prompts |
-| `/home/atlas/` | Read-write | Memory, system state, config, identity, skills |
+| `/home/agent/` | Read-write | Memory, system state, config, identity, skills |
 
 See [directory-structure.md](directory-structure.md) for details.
 

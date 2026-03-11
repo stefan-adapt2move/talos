@@ -50,9 +50,9 @@ app/
 └── init.sh                     # Container startup script
 ```
 
-## /home/atlas/ (Read-Write)
+## /home/agent/ (Read-Write)
 
-Persistent home directory. Mounted as a Docker volume (`./home:/home/atlas`). Contains all user data.
+Persistent home directory. Mounted as a Docker volume (`./home:/home/agent`). Contains all user data.
 
 ```
 home/
@@ -102,7 +102,7 @@ home/
 | `app/web-ui/index.ts` | Hono.js dashboard server |
 | `app/defaults/agents/` | System agent specs (developer, reviewer, etc.) |
 | `app/defaults/skills/` | System skills (symlinked into `.claude/skills/`) |
-| `/home/atlas/.index/atlas.db` | SQLite database (messages, triggers, sessions, path_locks) |
-| `/home/atlas/memory/MEMORY.md` | Long-term memory storage |
-| `/home/atlas/IDENTITY.md` | Agent identity/personality |
-| `/home/atlas/config.yml` | Runtime configuration |
+| `/home/agent/.index/atlas.db` | SQLite database (messages, triggers, sessions, path_locks) |
+| `/home/agent/memory/MEMORY.md` | Long-term memory storage |
+| `/home/agent/IDENTITY.md` | Agent identity/personality |
+| `/home/agent/config.yml` | Runtime configuration |

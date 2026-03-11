@@ -59,7 +59,7 @@ export type MetricsData = {
 // Constants
 // ---------------------------------------------------------------------------
 
-const HOME = process.env.HOME ?? "/home/atlas";
+const HOME = process.env.HOME ?? "/home/agent";
 const APP_DIR = "/atlas/app";
 const PROMPT_DIR = `${APP_DIR}/prompts`;
 const DB_PATH = `${HOME}/.index/atlas.db`;
