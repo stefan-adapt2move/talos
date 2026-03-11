@@ -20,9 +20,18 @@ if [ -f "/home/atlas/.index/atlas.db" ]; then
   sqlite3 "/home/atlas/.index/atlas.db" "DELETE FROM path_locks;" 2>/dev/null || true
 fi
 
+# Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Atlas"
+if [ -z "${AGENT_NAME:-}" ]; then
+  if [ -f "/home/atlas/config.yml" ]; then
+    AGENT_NAME=$(grep -A1 '^agent:' "/home/atlas/config.yml" 2>/dev/null | grep 'name:' | sed 's/.*name: *"\?\([^"#]*\)"\?.*/\1/' | xargs) || true
+  fi
+fi
+export AGENT_NAME="${AGENT_NAME:-Atlas}"
+
 # Drop to atlas user and start supervisord
 # Pass PATH explicitly — sudo env_reset strips the Dockerfile ENV PATH otherwise
 exec sudo -u atlas \
   PATH="/atlas/app/bin:/home/atlas/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   HOME="/home/atlas" \
+  AGENT_NAME="$AGENT_NAME" \
   /usr/bin/supervisord -c /etc/supervisor/conf.d/atlas.conf

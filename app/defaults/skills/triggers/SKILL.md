@@ -20,7 +20,7 @@ Scheduled execution using standard cron syntax.
 | `0 6 * * *` | Daily at 6:00 |
 
 ### Webhook
-Webhooks connect external services to Atlas via a self-hosted relay (smee.io). No ports need to be opened — Atlas connects outbound via SSE.
+Webhooks connect external services to the agent via a self-hosted relay (smee.io). No ports need to be opened — the agent connects outbound via SSE.
 
 **How it works:**
 1. `trigger create --type=webhook` generates a unique channel and returns the relay URL
@@ -196,7 +196,7 @@ The listener auto-discovers webhook triggers from the DB and reconnects on failu
 
 Some integrations need a persistent background process instead of a cron job — for example, a messaging listener that reacts instantly rather than polling every minute.
 
-Atlas supports this via `~/supervisor.d/`. Any `.conf` file placed there is picked up by supervisord. Services can be added or removed without rebuilding the container.
+The agent supports this via `~/supervisor.d/`. Any `.conf` file placed there is picked up by supervisord. Services can be added or removed without rebuilding the container.
 
 **Add a service** — create `~/supervisor.d/myservice.conf`:
 ```ini

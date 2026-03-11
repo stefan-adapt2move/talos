@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * WhatsApp Daemon for Atlas.
+ * WhatsApp Daemon.
  *
  * Uses Baileys (WhiskeySockets/Baileys) to connect to WhatsApp via the
  * multi-device linked-devices protocol. Handles both incoming message

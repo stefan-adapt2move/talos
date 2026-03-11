@@ -5,7 +5,16 @@ WORKSPACE="$HOME"
 LOG="/atlas/logs/init.log"
 exec > >(tee -a "$LOG") 2>&1
 
-echo "[$(date)] Atlas init starting..."
+# Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Atlas"
+if [ -z "${AGENT_NAME:-}" ]; then
+  if [ -f "$WORKSPACE/config.yml" ]; then
+    AGENT_NAME=$(grep -A1 '^agent:' "$WORKSPACE/config.yml" 2>/dev/null | grep 'name:' | sed 's/.*name: *"\?\([^"#]*\)"\?.*/\1/' | xargs)
+  fi
+  AGENT_NAME="${AGENT_NAME:-Atlas}"
+fi
+export AGENT_NAME
+
+echo "[$(date)] $AGENT_NAME init starting..."
 
 # ── Phase 1: Auth Check ──
 echo "[$(date)] Phase 1: Auth check"
@@ -150,7 +159,7 @@ else
   # Create empty template
   cat > "$WORKSPACE/user-extensions.sh" << 'EXTENSIONS'
 #!/bin/bash
-# Atlas User Extensions
+# Agent User Extensions
 # This script runs on every container start.
 # Use it to install custom tools, e.g.:
 #
@@ -168,7 +177,7 @@ echo "[$(date)] Phase 8: Claude Code settings + discovery links"
 bun run /atlas/app/hooks/generate-settings.ts || echo "  ⚠ Settings generation failed (non-fatal)"
 
 # Skills: merged real directory with per-skill symlinks
-# System skills (from image) + Atlas-created skills (from home/skills/)
+# System skills (from image) + agent-created skills (from home/skills/)
 rm -rf "$HOME/.claude/skills"
 mkdir -p "$HOME/.claude/skills"
 for d in /atlas/app/defaults/skills/*/; do
@@ -248,7 +257,7 @@ for row in rows:
 " 2>/dev/null || echo "  ⚠ Trigger resume failed (non-fatal)"
 fi
 
-echo "[$(date)] Atlas init complete. First run: $FIRST_RUN"
+echo "[$(date)] $AGENT_NAME init complete. First run: $FIRST_RUN"
 echo "[$(date)] Dashboard: http://127.0.0.1:8080"
 
 exit 0

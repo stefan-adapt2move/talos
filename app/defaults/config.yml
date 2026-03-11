@@ -1,5 +1,8 @@
-# Atlas Configuration
+# Agent Configuration
 # Editable by Claude and via the Web-UI
+
+agent:
+  name: "Atlas" # Display name for the agent (used in UI, logs, prompts). Override with AGENT_NAME env var.
 
 models:
   trigger: opus # Trigger sessions (PM/team lead) — needs strong reasoning
@@ -46,7 +49,7 @@ web_ui:
   bind: "127.0.0.1"
 
 failure_handling:
-  notification_command: "" # Shell command run once after threshold (e.g. "signal send '+1...' 'Atlas API unavailable'")
+  notification_command: "" # Shell command run once after threshold (e.g. "signal send '+1...' 'API unavailable'")
   backoff_initial_seconds: 30
   backoff_max_seconds: 900 # Cap at 15 minutes
   notification_threshold_minutes: 30

@@ -1,4 +1,4 @@
-# Atlas Crontab (supercronic)
+# Agent Crontab (supercronic)
 # Timezone via TZ env variable in the container
 
 # Check for due reminders every minute

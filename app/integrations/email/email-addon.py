@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Email Communication Add-on for Atlas.
+Email Communication Add-on.
 
 Unified module for all email operations: polling IMAP, sending/replying via SMTP,
 and thread tracking. Uses its own SQLite database per account.
@@ -465,7 +465,7 @@ def cmd_poll(config, once=False):
             # 2b. Save as searchable file
             save_email_file(thread_id, sender, subject, msg.get("Date", ""), body, attachments)
 
-            # 3. Write to Atlas inbox
+            # 3. Write to agent inbox
             inbox_content = f"From: {sender}\nSubject: {subject}\n\n{body[:4000]}"
             if attachments:
                 att_summary = "\n".join(f"  - {a['filename']} ({a['content_type']}, {a['size']} bytes): {a['path']}" for a in attachments)
@@ -745,7 +745,7 @@ def cmd_thread_detail(config, thread_id):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Atlas Email Add-on — unified email management",
+        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} Email Add-on — unified email management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

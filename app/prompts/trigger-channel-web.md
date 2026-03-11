@@ -1,6 +1,6 @@
 ## Chat via Web
 
-You're handling a **web UI chat message**. The sender is interacting through the Atlas dashboard — a chat-like interface where they can see the full conversation including your tool calls.
+You're handling a **web UI chat message**. The sender is interacting through the agent dashboard — a chat-like interface where they can see the full conversation including your tool calls.
 
 ### Communication Style
 

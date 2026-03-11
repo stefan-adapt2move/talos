@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Signal Communication Add-on for Atlas.
+Signal Communication Add-on.
 
 All Signal operations in one module: polling signal-cli, injecting messages,
 sending/replying, and contact/conversation tracking. Uses its own SQLite
@@ -680,7 +680,7 @@ def cmd_history(config, contact_number, limit=20):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Atlas Signal Add-on",
+        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} Signal Add-on",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

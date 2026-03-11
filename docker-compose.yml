@@ -10,6 +10,7 @@ services:
       - ./logs:/atlas/logs
     environment:
       - TZ=Europe/Berlin
+      # - AGENT_NAME=Atlas  # Display name for the agent (UI, logs, prompts)
       # Uncomment for API key auth (alternative to OAuth):
       # - ANTHROPIC_API_KEY=sk-ant-...
     ports:

@@ -23,7 +23,7 @@ try {
   try {
     staticPart = readFileSync(STATIC_CRONTAB, "utf-8").trimEnd();
   } catch {
-    staticPart = "# Atlas Crontab (supercronic)";
+    staticPart = `# ${process.env.AGENT_NAME || "Atlas"} Crontab (supercronic)`;
   }
 }
 

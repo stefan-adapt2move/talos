@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WhatsApp Communication Add-on for Atlas.
+WhatsApp Communication Add-on.
 
 All WhatsApp operations in one module: injecting incoming messages,
 sending/replying, and contact/conversation tracking. Uses its own SQLite
@@ -553,7 +553,7 @@ def cmd_history(config, contact_number, limit=20):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Atlas WhatsApp Add-on",
+        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} WhatsApp Add-on",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
