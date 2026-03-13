@@ -9,36 +9,39 @@ Send, receive, and manage emails via the configured mail server (IMAP/SMTP).
 
 ## CLI Commands
 
-The email integration is at `/atlas/app/integrations/email/email-addon.py`.
-
 ### Send a new email
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py send "recipient@example.com" "Subject line" "Email body text"
+email send "recipient@example.com" "Subject line" "Email body text"
 ```
 
 ### Send with attachments
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py send "recipient@example.com" "Report" "Please find attached." --attach /path/to/file.pdf --attach /path/to/other.csv
+email send "recipient@example.com" "Report" "Please find attached." --attach /path/to/file.pdf --attach /path/to/other.csv
 ```
 
 ### Reply to a thread
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py reply "thread-id-here" "Reply body text"
+email reply "thread-id-here" "Reply body text"
+```
+
+### Reply with attachments
+```bash
+email reply "thread-id-here" "See attached." --attach /path/to/file.pdf
 ```
 
 ### Check for new emails (one-time)
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py poll --once
+email poll --once
 ```
 
 ### List email threads
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py threads --limit 20
+email threads --limit 20
 ```
 
 ### Show thread detail
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py thread "thread-id-here"
+email thread "thread-id-here"
 ```
 
 ## Configuration
@@ -68,7 +71,7 @@ The email poller runs as a background process (managed by supervisord) using IMA
 
 To start manually:
 ```bash
-python3 /atlas/app/integrations/email/email-addon.py poll
+email poll
 ```
 
 ## Thread Tracking
