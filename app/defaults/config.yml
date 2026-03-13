@@ -26,14 +26,18 @@ signal:
   whitelist: [] # Empty = accept all, or list of allowed numbers
 
 # Email integration (IMAP + SMTP)
+# Supports both implicit TLS (port 993/465) and STARTTLS (port 143/587).
+# For self-hosted servers with self-signed certs, set ssl_verify: false.
 email:
-  imap_host: "" # e.g. "imap.gmail.com"
-  imap_port: 993
-  smtp_host: "" # e.g. "smtp.gmail.com"
+  imap_host: "" # e.g. "imap.gmail.com" or "mailcow.mail.svc.cluster.local"
+  imap_port: 993 # 993 for implicit TLS, 143 for STARTTLS
+  imap_starttls: false # Set true for port 143 (STARTTLS)
+  smtp_host: "" # e.g. "smtp.gmail.com" or "mailcow.mail.svc.cluster.local"
   smtp_port: 587
   username: "" # e.g. "atlas@example.com"
   password_file: "/home/agent/secrets/email-password"
   folder: "INBOX"
+  ssl_verify: true # Set false for self-signed certs (e.g. internal Mailcow)
   whitelist: [] # Empty = accept all, or list of senders/domains/wildcards (e.g. "*@*.example.com")
   mark_read: true # Mark fetched emails as read on server
 

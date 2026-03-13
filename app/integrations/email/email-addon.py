@@ -29,6 +29,7 @@ import select
 import signal
 import smtplib
 import sqlite3
+import ssl
 import subprocess
 import sys
 import time
@@ -68,12 +69,14 @@ def load_config():
     config = {
         "imap_host": os.environ.get("EMAIL_IMAP_HOST", cfg.get("imap_host", "")),
         "imap_port": int(os.environ.get("EMAIL_IMAP_PORT", cfg.get("imap_port", 993))),
+        "imap_starttls": cfg.get("imap_starttls", False),
         "smtp_host": os.environ.get("EMAIL_SMTP_HOST", cfg.get("smtp_host", "")),
         "smtp_port": int(os.environ.get("EMAIL_SMTP_PORT", cfg.get("smtp_port", 587))),
         "username": os.environ.get("EMAIL_USERNAME", cfg.get("username", "")),
         "password": os.environ.get("EMAIL_PASSWORD", ""),
         "password_file": cfg.get("password_file", ""),
         "folder": os.environ.get("EMAIL_FOLDER", cfg.get("folder", "INBOX")),
+        "ssl_verify": cfg.get("ssl_verify", True),
         "whitelist": cfg.get("whitelist", []),
         "mark_read": cfg.get("mark_read", True),
         "idle_timeout": int(os.environ.get("EMAIL_IDLE_TIMEOUT", cfg.get("idle_timeout", 1500))),
@@ -85,6 +88,38 @@ def load_config():
             config["password"] = pf.read_text().strip()
 
     return config
+
+
+# --- SSL / Connection helpers ---
+
+def _ssl_context(config):
+    """Create an SSL context, optionally disabling verification for self-signed certs."""
+    ctx = ssl.create_default_context()
+    if not config.get("ssl_verify", True):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _imap_connect(config):
+    """Connect to IMAP, supporting both implicit TLS (port 993) and STARTTLS (port 143)."""
+    ctx = _ssl_context(config)
+    if config.get("imap_starttls", False):
+        mail = imaplib.IMAP4(config["imap_host"], config["imap_port"])
+        mail.starttls(ssl_context=ctx)
+    else:
+        mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"], ssl_context=ctx)
+    mail.login(config["username"], config["password"])
+    return mail
+
+
+def _smtp_connect(config):
+    """Connect to SMTP with STARTTLS, optionally disabling cert verification."""
+    ctx = _ssl_context(config)
+    server = smtplib.SMTP(config["smtp_host"], config["smtp_port"])
+    server.starttls(context=ctx)
+    server.login(config["username"], config["password"])
+    return server
 
 
 # --- Email Database ---
@@ -527,8 +562,7 @@ def cmd_poll(config, once=False):
     db = get_email_db(config)
 
     try:
-        mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
-        mail.login(config["username"], config["password"])
+        mail = _imap_connect(config)
         mail.select(config["folder"])
 
         _fetch_new_emails(mail, db, config)
@@ -637,8 +671,7 @@ def cmd_poll_idle(config):
 
             # Connect
             print(f"[{datetime.now()}] Connecting to {config['imap_host']}...")
-            mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
-            mail.login(config["username"], config["password"])
+            mail = _imap_connect(config)
             mail.select(config["folder"])
 
             # Check IDLE support
@@ -651,8 +684,7 @@ def cmd_poll_idle(config):
                 while not _shutdown_requested:
                     db = get_email_db(config)
                     try:
-                        mail = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
-                        mail.login(config["username"], config["password"])
+                        mail = _imap_connect(config)
                         mail.select(config["folder"])
                         _fetch_new_emails(mail, db, config)
                         mail.logout()
@@ -763,9 +795,7 @@ def cmd_send(config, to, subject, body, attachments=None):
     msg["Message-ID"] = make_msgid(domain=domain)
 
     try:
-        with smtplib.SMTP(config["smtp_host"], config["smtp_port"]) as server:
-            server.starttls()
-            server.login(config["username"], config["password"])
+        with _smtp_connect(config) as server:
             server.send_message(msg)
 
         # Create thread in DB
@@ -837,9 +867,7 @@ def cmd_reply(config, thread_id, body, attachments=None):
         msg["References"] = " ".join(references)
 
     try:
-        with smtplib.SMTP(config["smtp_host"], config["smtp_port"]) as server:
-            server.starttls()
-            server.login(config["username"], config["password"])
+        with _smtp_connect(config) as server:
             server.send_message(msg)
 
         # Update thread state: append our Message-ID to references
