@@ -27,6 +27,7 @@ import makeWASocket, {
   downloadMediaMessage,
   getContentType,
 } from "@whiskeysockets/baileys";
+import QRCode from "qrcode";
 import { createServer, type Server } from "net";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { join, extname } from "path";
@@ -43,6 +44,8 @@ const AUTH_DIR = join(HOME, ".local/share/whatsapp/auth");
 const ATTACHMENTS_DIR = join(HOME, ".local/share/whatsapp/attachments");
 const SOCKET_PATH = "/tmp/whatsapp.sock";
 const LOG_FILE = "/atlas/logs/whatsapp-daemon.log";
+const QR_IMAGE_PATH = join(HOME, ".local/share/whatsapp/qr-code.png");
+const QR_STATUS_PATH = join(HOME, ".local/share/whatsapp/status.json");
 
 // Rate limiting: minimum delay between outgoing messages (ms)
 const SEND_RATE_LIMIT_MS = 1500;
@@ -445,10 +448,33 @@ async function connectWhatsApp(): Promise<void> {
     if (qr) {
       log("QR code generated — scan with WhatsApp mobile app (Settings → Linked Devices → Link a Device)");
       // QR is printed to terminal by printQRInTerminal: true
+      // Also save as PNG image so the Atlas agent can send it to the user
+      try {
+        await QRCode.toFile(QR_IMAGE_PATH, qr, { width: 512, margin: 2 });
+        writeFileSync(QR_STATUS_PATH, JSON.stringify({
+          status: "waiting_for_scan",
+          qrImagePath: QR_IMAGE_PATH,
+          updatedAt: new Date().toISOString(),
+          message: "QR-Code bereit. Bitte mit WhatsApp scannen: Einstellungen → Verknüpfte Geräte → Gerät hinzufügen",
+        }));
+        log(`QR code saved to ${QR_IMAGE_PATH}`);
+      } catch (err) {
+        log(`Failed to save QR image: ${err}`);
+      }
     }
 
     if (connection === "open") {
       log("Connected to WhatsApp");
+      // Update status file
+      try {
+        writeFileSync(QR_STATUS_PATH, JSON.stringify({
+          status: "connected",
+          updatedAt: new Date().toISOString(),
+          message: "WhatsApp ist verbunden.",
+        }));
+        // Clean up QR image
+        if (existsSync(QR_IMAGE_PATH)) unlinkSync(QR_IMAGE_PATH);
+      } catch {}
       // Start send socket server
       if (!sendServer) {
         sendServer = startSendServer(sock);

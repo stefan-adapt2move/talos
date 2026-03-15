@@ -38,6 +38,8 @@ WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
 TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"
 TRIGGER_NAME = "whatsapp-chat"
 DAEMON_SOCKET = "/tmp/whatsapp.sock"
+WHATSAPP_STATUS_PATH = os.environ["HOME"] + "/.local/share/whatsapp/status.json"
+WHATSAPP_QR_PATH = os.environ["HOME"] + "/.local/share/whatsapp/qr-code.png"
 
 # Audio MIME types that should be transcribed
 AUDIO_MIME_TYPES = {"audio/aac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav",
@@ -716,6 +718,25 @@ def cmd_history(config, contact_number, limit=20):
 
 # --- Main CLI ---
 
+def cmd_status():
+    """Show WhatsApp connection status. If waiting for QR scan, print the QR image path."""
+    if os.path.exists(WHATSAPP_STATUS_PATH):
+        with open(WHATSAPP_STATUS_PATH) as f:
+            status = json.load(f)
+        print(f"Status: {status.get('status', 'unknown')}")
+        print(f"Updated: {status.get('updatedAt', 'unknown')}")
+        print(f"Message: {status.get('message', '')}")
+        if status.get("status") == "waiting_for_scan" and os.path.exists(WHATSAPP_QR_PATH):
+            print(f"QR Code: {WHATSAPP_QR_PATH}")
+    else:
+        # Check if daemon socket exists (connection might be up without status file)
+        if os.path.exists(DAEMON_SOCKET):
+            print("Status: connected (legacy — no status file)")
+        else:
+            print("Status: not running")
+            print("Start with: supervisorctl start whatsapp-daemon")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=f"{os.environ.get('AGENT_NAME', 'Atlas')} WhatsApp Add-on",
@@ -754,6 +775,9 @@ Examples:
     p_history.add_argument("number", help="Contact phone number")
     p_history.add_argument("--limit", type=int, default=20)
 
+    # status
+    sub.add_parser("status", help="Show WhatsApp connection status and QR code path if available")
+
     args = parser.parse_args()
     config = load_config()
 
@@ -767,6 +791,8 @@ Examples:
         cmd_contacts(config, limit=args.limit)
     elif args.command == "history":
         cmd_history(config, args.number, limit=args.limit)
+    elif args.command == "status":
+        cmd_status()
 
 
 if __name__ == "__main__":
