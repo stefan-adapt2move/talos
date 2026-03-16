@@ -17,7 +17,7 @@ emit_section() {
   fi
 }
 
-# Only emit memory context here (not part of system prompt)
+# Emit long-term memory
 emit_section "$MEMORY" "long-term-memory"
 
 # Show recent journal entries (titles only)
