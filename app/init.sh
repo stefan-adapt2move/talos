@@ -121,7 +121,7 @@ fi
 # ── Phase 2b: ENV Secret Bridge ──
 # Any env var matching ATLAS_SECRET_* gets written to $HOME/secrets/<lowercase_suffix>
 echo "[$(date)] Phase 2b: ENV secret bridge"
-env | grep '^ATLAS_SECRET_' | while IFS='=' read -r key value; do
+{ env | grep '^ATLAS_SECRET_' || true; } | while IFS='=' read -r key value; do
   secret_name=$(echo "$key" | sed 's/^ATLAS_SECRET_//' | tr '[:upper:]' '[:lower:]')
   secret_file="$WORKSPACE/secrets/$secret_name"
   echo "$value" > "$secret_file"
