@@ -70,19 +70,9 @@ RUN apt-get update && apt-get install -y \
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 
-# Claude CLI + Playwright + MCP + QMD (second layer — still heavy but only one snapshot)
-RUN for i in 1 2 3 4 5; do \
-      HOME=/tmp/claude-install curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude-install bash \
-      && cp /tmp/claude-install/.local/bin/claude /usr/local/bin/claude \
-      && chmod +x /usr/local/bin/claude \
-      && rm -rf /tmp/claude-install \
-      && break; \
-      echo "Attempt $i failed, retrying in ${i}0s..."; \
-      rm -rf /tmp/claude-install; \
-      sleep ${i}0; \
-    done && claude --version \
-  && npx playwright install --with-deps chromium 2>/dev/null || true \
-  && npm install -g @playwright/mcp \
+# Light tools only — Claude CLI, Playwright browsers, and npm globals
+# are installed at runtime via init.sh (too heavy for Kaniko snapshots)
+RUN npm install -g @playwright/mcp \
   && (npm install -g @tobilu/qmd || true)
 
 # Create directory structure
