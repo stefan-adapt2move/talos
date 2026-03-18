@@ -24,7 +24,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Berlin
 
-# System packages (without nodejs - installed separately below)
+# ---- Single mega-install layer ----
+# Combines: system packages, Node.js, Bun, supercronic, Typst, Claude CLI,
+# Playwright, MCP, QMD, and user setup — to minimize Kaniko snapshots.
 RUN apt-get update && apt-get install -y \
   curl wget git jq ripgrep \
   supervisor \
@@ -37,47 +39,38 @@ RUN apt-get update && apt-get install -y \
   unzip sudo \
   ffmpeg \
   pandoc \
-  && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user with sudo access
-RUN useradd -m -s /bin/bash -G sudo agent \
-  && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent
-
-# Install Node.js 22 (required by QMD)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && rm -rf /var/lib/apt/lists/* \
+  # --- Create non-root user ---
+  && useradd -m -s /bin/bash -G sudo agent \
+  && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent \
+  # --- Node.js 22 ---
+  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt-get install -y nodejs \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  # --- Bun ---
+  && ARCH=$(dpkg --print-architecture) \
+  && if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; else BUN_ARCH="x64"; fi \
+  && curl -fsSL "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-${BUN_ARCH}.zip" -o /tmp/bun.zip \
+  && unzip -o /tmp/bun.zip -d /tmp/bun-extract \
+  && mv /tmp/bun-extract/*/bun /usr/local/bin/bun \
+  && chmod +x /usr/local/bin/bun \
+  && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
+  && rm -rf /tmp/bun.zip /tmp/bun-extract \
+  # --- Supercronic ---
+  && SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v0.2.33/supercronic-linux-${ARCH}" \
+  && curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
+  && chmod +x /usr/local/bin/supercronic \
+  # --- Typst ---
+  && TYPST_VERSION="0.14.2" \
+  && if [ "$ARCH" = "arm64" ]; then TYPST_ARCH="aarch64"; else TYPST_ARCH="x86_64"; fi \
+  && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
+    | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
+  && chmod +x /usr/local/bin/typst
 
-# Install Bun (to /usr/local so it survives /root volume mount)
-RUN ARCH=$(dpkg --print-architecture) && \
-  if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; else BUN_ARCH="x64"; fi && \
-  curl -fsSL "https://github.com/oven-sh/bun/releases/latest/download/bun-linux-${BUN_ARCH}.zip" -o /tmp/bun.zip && \
-  unzip -o /tmp/bun.zip -d /tmp/bun-extract && \
-  mv /tmp/bun-extract/*/bun /usr/local/bin/bun && \
-  chmod +x /usr/local/bin/bun && \
-  ln -sf /usr/local/bin/bun /usr/local/bin/bunx && \
-  rm -rf /tmp/bun.zip /tmp/bun-extract
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 
-# Install supercronic (cron replacement)
-RUN ARCH=$(dpkg --print-architecture) && \
-  SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v0.2.33/supercronic-linux-${ARCH}" && \
-  curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic && \
-  chmod +x /usr/local/bin/supercronic
-
-# Install Typst (document generation)
-RUN ARCH=$(dpkg --print-architecture) && \
-  TYPST_VERSION="0.14.2" && \
-  if [ "$ARCH" = "arm64" ]; then TYPST_ARCH="aarch64"; else TYPST_ARCH="x86_64"; fi && \
-  curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
-    | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" && \
-  chmod +x /usr/local/bin/typst
-
-
-# Install Claude Code (native binary)
-# Use temp HOME to avoid installing into /root which gets volume-mounted
-# Retry up to 5 times with backoff to handle 429 rate limiting
+# Claude CLI + Playwright + MCP + QMD (second layer — still heavy but only one snapshot)
 RUN for i in 1 2 3 4 5; do \
       HOME=/tmp/claude-install curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude-install bash \
       && cp /tmp/claude-install/.local/bin/claude /usr/local/bin/claude \
@@ -87,10 +80,8 @@ RUN for i in 1 2 3 4 5; do \
       echo "Attempt $i failed, retrying in ${i}0s..."; \
       rm -rf /tmp/claude-install; \
       sleep ${i}0; \
-    done && claude --version
-
-# Install Playwright + MCP + QMD in one layer to reduce filesystem snapshots
-RUN npx playwright install --with-deps chromium 2>/dev/null || true \
+    done && claude --version \
+  && npx playwright install --with-deps chromium 2>/dev/null || true \
   && npm install -g @playwright/mcp \
   && (npm install -g @tobilu/qmd || true)
 
@@ -121,48 +112,28 @@ COPY .claude/settings.json /atlas/app/.claude/settings.json
 # Copy compiled trigger-runner native binary from build stage
 COPY --from=trigger-builder /build/trigger-runner /atlas/app/triggers/trigger-runner
 
-# Set execute permissions
+# Set permissions + install all bun deps + nginx/supervisor config in one layer
 RUN chmod +x /atlas/app/entrypoint.sh \
   && chmod +x /atlas/app/init.sh \
   && chmod +x /atlas/app/hooks/*.sh \
   && chmod +x /atlas/app/triggers/cron/*.sh \
   && chmod +x /atlas/app/triggers/trigger-runner \
-  && chmod +x /atlas/app/bin/*
-
-# Install shared lib dependencies
-WORKDIR /atlas/app/lib
-RUN bun install
-
-# Install Atlas-MCP dependencies
-WORKDIR /atlas/app/atlas-mcp
-RUN bun install
-
-# Install Trigger Runner dependencies
-WORKDIR /atlas/app/triggers
-RUN bun install
-
-# Install WhatsApp daemon dependencies
-WORKDIR /atlas/app/integrations/whatsapp
-RUN bun install
-
-# Install Web-UI dependencies
-WORKDIR /atlas/app/web-ui
-RUN bun install
+  && chmod +x /atlas/app/bin/* \
+  && cd /atlas/app/lib && bun install \
+  && cd /atlas/app/atlas-mcp && bun install \
+  && cd /atlas/app/triggers && bun install \
+  && cd /atlas/app/integrations/whatsapp && bun install \
+  && cd /atlas/app/web-ui && bun install
 
 # Copy supervisord config
 COPY supervisord.conf /etc/supervisor/conf.d/atlas.conf
 
-# Nginx config
+# Nginx config + symlinks + ownership (one final layer)
 COPY app/nginx.conf /etc/nginx/sites-available/atlas
 RUN ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
-  && rm -f /etc/nginx/sites-enabled/default
-
-# Backwards-compat symlink: /home/atlas → /home/agent
-RUN ln -s /home/agent /home/atlas
-
-# Grant agent user write access to image-layer directories.
-# Volume mounts are fixed at runtime by entrypoint.sh.
-RUN chown -R agent:agent /atlas /home/agent \
+  && rm -f /etc/nginx/sites-enabled/default \
+  && ln -s /home/agent /home/atlas \
+  && chown -R agent:agent /atlas /home/agent \
   && chown -R agent:agent /var/run /var/log/nginx /var/lib/nginx \
   && chown -R agent:agent /etc/supervisor
 
