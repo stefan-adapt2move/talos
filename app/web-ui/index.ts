@@ -1607,6 +1607,106 @@ api.post("/triggers/:name/run", (c) => {
   return c.json({ ok: true, name, message: "Trigger fired" });
 });
 
+// --- Chat (JSON API) ---
+
+api.post("/chat/messages", async (c) => {
+  const body = await c.req.json();
+  const content = (body.message || "").trim();
+  if (!content || typeof content !== "string") {
+    return c.json({ error: "Missing 'message' field" }, 400);
+  }
+
+  const msg = db
+    .prepare(
+      "INSERT INTO messages (channel, sender, content) VALUES ('web', 'web-ui', ?) RETURNING *",
+    )
+    .get(content) as any;
+
+  // Touch wake file
+  try {
+    mkdirSync(`${WS}/inbox`, { recursive: true });
+    closeSync(openSync(WAKE, "w"));
+  } catch {}
+
+  // Fire trigger
+  const payload = JSON.stringify({
+    inbox_message_id: msg.id,
+    sender: "web-ui",
+    message: content.slice(0, 4000),
+    timestamp: msg.created_at,
+  });
+  Bun.spawn(
+    ["/atlas/app/triggers/trigger.sh", "web-chat", payload, "_default"],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+
+  return c.json({
+    ok: true,
+    message: {
+      id: msg.id,
+      content: msg.content,
+      timestamp: msg.created_at,
+    },
+  });
+});
+
+api.get("/chat/messages", (c) => {
+  // User messages from DB
+  const dbMessages = db
+    .prepare("SELECT id, content, created_at FROM messages WHERE channel='web' ORDER BY created_at ASC, id ASC")
+    .all() as { id: number; content: string; created_at: string }[];
+
+  // Assistant messages from JSONL session file
+  const session = db
+    .prepare("SELECT session_id FROM trigger_sessions WHERE trigger_name='web-chat' AND session_key='_default' LIMIT 1")
+    .get() as any;
+
+  let assistantMsgs: ParsedMessage[] = [];
+  let isRunning = false;
+  if (session) {
+    const filePath = findSessionFile(session.session_id);
+    if (filePath) {
+      const all = parseSessionMessages(filePath);
+      // Drop user-text entries from JSONL — those are trigger boilerplate
+      assistantMsgs = all.filter(m => m.type !== "user-text");
+      isRunning = existsSync(`/tmp/claudec-${session.session_id}.sock`);
+    }
+  }
+
+  // Merge DB user messages + JSONL assistant messages, sorted chronologically
+  const combined: { role: string; content: string; timestamp: string }[] = [];
+
+  for (const m of dbMessages) {
+    combined.push({
+      role: "user",
+      content: m.content,
+      timestamp: m.created_at.replace(" ", "T"),
+    });
+  }
+
+  // Only include assistant-text messages (skip tool-use, thinking, tool-result)
+  for (const m of assistantMsgs) {
+    if (m.type === "assistant-text") {
+      combined.push({
+        role: "assistant",
+        content: m.content,
+        timestamp: m.timestamp || "",
+      });
+    }
+  }
+
+  combined.sort((a, b) => {
+    if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
+    // Same timestamp: user before assistant
+    return (a.role === "user" ? 0 : 1) - (b.role === "user" ? 0 : 1);
+  });
+
+  // Show typing while session is being set up or actively running
+  const isTyping = (!session && dbMessages.length > 0) || (!!session && isRunning);
+
+  return c.json({ ok: true, messages: combined, isTyping });
+});
+
 // Mount API under /api/v1
 app.route("/api/v1", api);
 
