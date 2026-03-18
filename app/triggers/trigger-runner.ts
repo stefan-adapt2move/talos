@@ -323,6 +323,7 @@ function makeLogger(triggerName: string) {
  * - ~/IDENTITY.md (wrapped in <identity> tags)
  * - /atlas/app/prompts/trigger-system-prompt.md
  * - /atlas/app/prompts/trigger-channel-{channel}.md
+ * - All .md files in ATLAS_PROMPT_EXTENSIONS_DIR (if set)
  */
 export function buildSystemPrompt(channel: string, options?: {
   appDir?: string;
@@ -354,6 +355,26 @@ export function buildSystemPrompt(channel: string, options?: {
   const channelPromptFile = `${promptDir}/trigger-channel-${channel}.md`;
   if (existsSync(channelPromptFile)) {
     systemPrompt += `\n---\n\n${readFileSync(channelPromptFile, "utf8")}`;
+  }
+
+  // Prompt extensions — deployments can drop additional .md files into a
+  // directory referenced by ATLAS_PROMPT_EXTENSIONS_DIR to inject extra
+  // system prompt sections.
+  const extensionsDir = process.env.ATLAS_PROMPT_EXTENSIONS_DIR;
+  if (extensionsDir) {
+    try {
+      const files = readdirSync(extensionsDir)
+        .filter(f => f.endsWith('.md'))
+        .sort();
+      for (const file of files) {
+        const content = readFileSync(join(extensionsDir, file), 'utf-8');
+        if (content.trim()) {
+          systemPrompt += '\n\n' + content.trim();
+        }
+      }
+    } catch {
+      // Directory doesn't exist or isn't readable — silently skip
+    }
   }
 
   return systemPrompt;
