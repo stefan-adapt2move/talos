@@ -77,19 +77,22 @@ RUN ARCH=$(dpkg --print-architecture) && \
 
 # Install Claude Code (native binary)
 # Use temp HOME to avoid installing into /root which gets volume-mounted
-RUN HOME=/tmp/claude-install curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude-install bash \
-  && cp /tmp/claude-install/.local/bin/claude /usr/local/bin/claude \
-  && chmod +x /usr/local/bin/claude \
-  && rm -rf /tmp/claude-install
+# Retry up to 5 times with backoff to handle 429 rate limiting
+RUN for i in 1 2 3 4 5; do \
+      HOME=/tmp/claude-install curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude-install bash \
+      && cp /tmp/claude-install/.local/bin/claude /usr/local/bin/claude \
+      && chmod +x /usr/local/bin/claude \
+      && rm -rf /tmp/claude-install \
+      && break; \
+      echo "Attempt $i failed, retrying in ${i}0s..."; \
+      rm -rf /tmp/claude-install; \
+      sleep ${i}0; \
+    done && claude --version
 
-# Install Playwright + MCP
-RUN npx playwright install --with-deps chromium 2>/dev/null || true
-
-# Install Playwright MCP server globally
-RUN npm install -g @playwright/mcp
-
-# Install QMD globally (use npm so binary goes to /usr/local/bin, surviving /root volume mount)
-RUN npm install -g @tobilu/qmd || true
+# Install Playwright + MCP + QMD in one layer to reduce filesystem snapshots
+RUN npx playwright install --with-deps chromium 2>/dev/null || true \
+  && npm install -g @playwright/mcp \
+  && (npm install -g @tobilu/qmd || true)
 
 # Create directory structure
 RUN mkdir -p /atlas/app/hooks \
