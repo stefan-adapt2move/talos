@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   nginx \
   sqlite3 \
   python3 python3-pip \
+  chromium-browser \
   openssh-client \
   ca-certificates \
   unzip xz-utils sudo \
