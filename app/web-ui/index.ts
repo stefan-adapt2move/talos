@@ -1707,6 +1707,116 @@ api.get("/chat/messages", (c) => {
   return c.json({ ok: true, messages: combined, isTyping });
 });
 
+api.get("/chat/stream", (c) => {
+  return c.newResponse(
+    new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const send = (data: any) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {}
+        };
+
+        let lastLineCount = 0;
+        let wasTyping = false;
+        let pollCount = 0;
+        const MAX_POLLS = 600; // 5 minutes at 500ms intervals
+
+        const poll = () => {
+          try {
+            pollCount++;
+            if (pollCount > MAX_POLLS) {
+              send({ messages: [], isTyping: false, done: true });
+              controller.close();
+              return;
+            }
+
+            // User messages from DB
+            const dbMessages = db
+              .prepare("SELECT id, content, created_at FROM messages WHERE channel='web' ORDER BY created_at ASC, id ASC")
+              .all() as { id: number; content: string; created_at: string }[];
+
+            // Assistant messages from JSONL session file
+            const session = db
+              .prepare("SELECT session_id FROM trigger_sessions WHERE trigger_name='web-chat' AND session_key='_default' LIMIT 1")
+              .get() as any;
+
+            let assistantMsgs: ParsedMessage[] = [];
+            let isRunning = false;
+            if (session) {
+              const filePath = findSessionFile(session.session_id);
+              if (filePath) {
+                const all = parseSessionMessages(filePath);
+                assistantMsgs = all.filter(m => m.type !== "user-text");
+                isRunning = existsSync(`/tmp/claudec-${session.session_id}.sock`);
+              }
+            }
+
+            // Merge DB user messages + JSONL assistant messages
+            const combined: { role: string; content: string; timestamp: string }[] = [];
+            for (const m of dbMessages) {
+              combined.push({
+                role: "user",
+                content: m.content,
+                timestamp: m.created_at.replace(" ", "T"),
+              });
+            }
+            for (const m of assistantMsgs) {
+              if (m.type === "assistant-text") {
+                combined.push({
+                  role: "assistant",
+                  content: m.content,
+                  timestamp: m.timestamp || "",
+                });
+              }
+            }
+            combined.sort((a, b) => {
+              if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
+              return (a.role === "user" ? 0 : 1) - (b.role === "user" ? 0 : 1);
+            });
+
+            const isTyping = (!session && dbMessages.length > 0) || (!!session && isRunning);
+            const currentLineCount = combined.length;
+
+            // Send update if messages changed or typing status changed
+            if (currentLineCount !== lastLineCount || isTyping !== wasTyping) {
+              send({ messages: combined, isTyping });
+              lastLineCount = currentLineCount;
+            }
+
+            // If typing just stopped (was typing, now not), send final event and close
+            if (wasTyping && !isTyping) {
+              send({ messages: combined, isTyping: false, done: true });
+              controller.close();
+              return;
+            }
+
+            wasTyping = isTyping;
+            setTimeout(poll, 500);
+          } catch {
+            try { controller.close(); } catch {}
+          }
+        };
+
+        // Send initial state immediately
+        poll();
+      },
+      cancel() {
+        // Client disconnected — nothing to clean up since setTimeout
+        // will fail silently when controller is closed
+      },
+    }),
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    }
+  );
+});
+
 // Mount API under /api/v1
 app.route("/api/v1", api);
 
