@@ -895,6 +895,7 @@ export async function runDirect(
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     autoMemoryEnabled: false,
+    disallowedTools: ["CronCreate", "CronDelete", "CronList"],
     cwd: HOME,
     ...(resumeId ? { resume: resumeId } : { persistSession: false }),
     ...(CLAUDE_CODE_PATH ? { pathToClaudeCodeExecutable: CLAUDE_CODE_PATH } : {}),
