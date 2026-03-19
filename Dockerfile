@@ -124,7 +124,8 @@ RUN ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default \
   && ln -s /home/agent /home/atlas \
   && chown -R agent:agent /atlas /home/agent \
-  && chown -R agent:agent /var/run /var/log/nginx /var/lib/nginx \
+  && (chown -R agent:agent /var/run 2>/dev/null || true) \
+  && chown -R agent:agent /var/log/nginx /var/lib/nginx \
   && chown -R agent:agent /etc/supervisor
 
 WORKDIR /home/agent
