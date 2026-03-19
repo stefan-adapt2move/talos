@@ -27,13 +27,16 @@ ENV TZ=Europe/Berlin
 # ---- Single mega-install layer ----
 # Combines: system packages, Node.js, Bun, supercronic, Typst, Claude CLI,
 # Playwright, MCP, QMD, and user setup — to minimize Kaniko snapshots.
-RUN apt-get update && apt-get install -y \
+# Note: chromium-browser removed — Playwright installs its own at runtime.
+# Note: Claude CLI, Playwright browsers installed at runtime via init.sh
+#       (too heavy for Kaniko filesystem snapshots).
+# npm globals (@playwright/mcp, @tobilu/qmd) included here in same layer.
+RUN apt-get update && apt-get install -y --no-install-recommends \
   curl wget git jq ripgrep \
   supervisor \
   nginx \
   sqlite3 \
   python3 python3-pip \
-  chromium-browser \
   openssh-client \
   ca-certificates \
   unzip sudo \
@@ -65,15 +68,14 @@ RUN apt-get update && apt-get install -y \
   && if [ "$ARCH" = "arm64" ]; then TYPST_ARCH="aarch64"; else TYPST_ARCH="x86_64"; fi \
   && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
     | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
-  && chmod +x /usr/local/bin/typst
+  && chmod +x /usr/local/bin/typst \
+  # --- npm globals ---
+  && npm install -g @playwright/mcp \
+  && (npm install -g @tobilu/qmd || true) \
+  && npm cache clean --force
 
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
-
-# Light tools only — Claude CLI, Playwright browsers, and npm globals
-# are installed at runtime via init.sh (too heavy for Kaniko snapshots)
-RUN npm install -g @playwright/mcp \
-  && (npm install -g @tobilu/qmd || true)
 
 # Create directory structure
 RUN mkdir -p /atlas/app/hooks \
