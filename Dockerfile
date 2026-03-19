@@ -25,12 +25,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Berlin
 
 # ---- Single mega-install layer ----
-# Combines: system packages, Node.js, Bun, supercronic, Typst, Claude CLI,
-# Playwright, MCP, QMD, and user setup — to minimize Kaniko snapshots.
-# Note: chromium-browser removed — Playwright installs its own at runtime.
-# Note: Claude CLI, Playwright browsers installed at runtime via init.sh
-#       (too heavy for Kaniko filesystem snapshots).
-# npm globals (@playwright/mcp, @tobilu/qmd) included here in same layer.
+# Everything in one RUN to minimize Kaniko snapshots.
+# Builds on dedicated builder nodes (16GB RAM) so we can include everything.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   curl wget git jq ripgrep \
   supervisor \
@@ -70,7 +66,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
     | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
   && chmod +x /usr/local/bin/typst \
-  # --- npm globals ---
+  # --- Claude CLI (with retry for rate limiting) ---
+  && for i in 1 2 3 4 5; do \
+       HOME=/tmp/claude-install curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude-install bash \
+       && cp /tmp/claude-install/.local/bin/claude /usr/local/bin/claude \
+       && chmod +x /usr/local/bin/claude \
+       && rm -rf /tmp/claude-install \
+       && break; \
+       echo "Claude CLI attempt $i failed, retrying in ${i}0s..."; \
+       rm -rf /tmp/claude-install; \
+       sleep ${i}0; \
+     done \
+  # --- Playwright browsers + MCP + QMD ---
+  && npx playwright install --with-deps chromium 2>/dev/null || true \
   && npm install -g @playwright/mcp \
   && (npm install -g @tobilu/qmd || true) \
   && npm cache clean --force
