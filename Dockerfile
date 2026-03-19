@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3 python3-pip \
   openssh-client \
   ca-certificates \
-  unzip sudo \
+  unzip xz-utils sudo \
   ffmpeg \
   pandoc \
   && rm -rf /var/lib/apt/lists/* \
