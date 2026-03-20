@@ -9,11 +9,15 @@ WORKDIR /build
 COPY app/triggers/package.json app/triggers/bun.lock* ./
 RUN bun install --frozen-lockfile
 
-# Copy source and compile to native binary (auto-detect architecture)
-COPY app/triggers/trigger-runner.ts ./
+# Copy source files: trigger-runner + lib/config.ts (imported via ../lib/config.ts)
+COPY app/triggers/trigger-runner.ts ./triggers/
+COPY app/lib/config.ts ./lib/
+
+# Compile to native binary (auto-detect architecture)
 RUN ARCH=$(uname -m) && \
   if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then BUN_TARGET="bun-linux-arm64"; \
   else BUN_TARGET="bun-linux-x64"; fi && \
+  cd triggers && \
   bun build --compile --target=${BUN_TARGET} trigger-runner.ts --outfile trigger-runner
 
 # ============================================================
@@ -100,7 +104,7 @@ COPY app/ /atlas/app/
 COPY .claude/settings.json /atlas/app/.claude/settings.json
 
 # Copy compiled trigger-runner native binary from build stage
-COPY --from=trigger-builder /build/trigger-runner /atlas/app/triggers/trigger-runner
+COPY --from=trigger-builder /build/triggers/trigger-runner /atlas/app/triggers/trigger-runner
 
 # Set permissions + install all bun deps + nginx/supervisor config in one layer
 RUN chmod +x /atlas/app/entrypoint.sh \
