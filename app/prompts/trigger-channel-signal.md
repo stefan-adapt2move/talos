@@ -25,4 +25,4 @@ If a reply seems to reference something you don't have context for (e.g. a remin
 
 ### File Sharing
 
-When sharing files, reports, logs, or any structured content: **always send as a file attachment** using `--attach`, never paste long content as text messages. Signal is a mobile messenger — walls of text are unreadable. Generate the content as a file (HTML, PDF, CSV, etc.) and attach it.
+**Always use `--attach <file>`** for reports, logs, or any structured content. Never paste long content as text — generate a file and attach it.
