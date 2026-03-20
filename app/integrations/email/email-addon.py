@@ -43,6 +43,7 @@ from pathlib import Path
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
+RUNTIME_CONFIG_PATH = os.environ["HOME"] + "/.atlas-runtime-config.json"
 ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
 EMAIL_DB_DIR = os.environ["HOME"] + "/.index/email"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
@@ -55,7 +56,16 @@ MESSAGES_DIR = os.environ["HOME"] + "/.index/email/messages"
 # --- Config ---
 
 def load_config():
-    """Load email config from config.yml, with env overrides."""
+    """Load email config from config.yml + runtime config, with env overrides.
+
+    Resolution order (highest priority wins):
+      1. Environment variables
+      2. Runtime config (~/.atlas-runtime-config.json)
+      3. config.yml
+      4. Built-in defaults
+
+    This matches the TypeScript resolveConfig() behavior in config.ts.
+    """
     cfg = {}
     if os.path.exists(CONFIG_PATH):
         try:
@@ -66,20 +76,45 @@ def load_config():
         except ImportError:
             pass
 
+    # Layer 2: Runtime config overrides (written by /api/v1/config endpoint)
+    rt = {}
+    if os.path.exists(RUNTIME_CONFIG_PATH):
+        try:
+            with open(RUNTIME_CONFIG_PATH) as f:
+                rt_data = json.load(f)
+            rt = rt_data.get("email", {}) if isinstance(rt_data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Merge: runtime overrides config.yml (for each key, use rt value if present,
+    # else cfg value, else default).  Env vars override both.
+    def _resolve(key, default, env_var=None):
+        """Pick the highest-priority value for a config key."""
+        file_val = cfg.get(key, default)
+        runtime_val = rt.get(key)
+        base = runtime_val if runtime_val is not None else file_val
+        if env_var:
+            env_raw = os.environ.get(env_var)
+            if env_raw is not None:
+                if isinstance(default, int):
+                    return int(env_raw)
+                return env_raw
+        return base
+
     config = {
-        "imap_host": os.environ.get("EMAIL_IMAP_HOST", cfg.get("imap_host", "")),
-        "imap_port": int(os.environ.get("EMAIL_IMAP_PORT", cfg.get("imap_port", 993))),
-        "imap_starttls": cfg.get("imap_starttls", False),
-        "smtp_host": os.environ.get("EMAIL_SMTP_HOST", cfg.get("smtp_host", "")),
-        "smtp_port": int(os.environ.get("EMAIL_SMTP_PORT", cfg.get("smtp_port", 587))),
-        "username": os.environ.get("EMAIL_USERNAME", cfg.get("username", "")),
+        "imap_host": _resolve("imap_host", "", "EMAIL_IMAP_HOST"),
+        "imap_port": _resolve("imap_port", 993, "EMAIL_IMAP_PORT"),
+        "imap_starttls": _resolve("imap_starttls", False),
+        "smtp_host": _resolve("smtp_host", "", "EMAIL_SMTP_HOST"),
+        "smtp_port": _resolve("smtp_port", 587, "EMAIL_SMTP_PORT"),
+        "username": _resolve("username", "", "EMAIL_USERNAME"),
         "password": os.environ.get("EMAIL_PASSWORD", ""),
-        "password_file": cfg.get("password_file", ""),
-        "folder": os.environ.get("EMAIL_FOLDER", cfg.get("folder", "INBOX")),
-        "ssl_verify": cfg.get("ssl_verify", True),
-        "whitelist": cfg.get("whitelist", []),
-        "mark_read": cfg.get("mark_read", True),
-        "idle_timeout": int(os.environ.get("EMAIL_IDLE_TIMEOUT", cfg.get("idle_timeout", 1500))),
+        "password_file": _resolve("password_file", ""),
+        "folder": _resolve("folder", "INBOX", "EMAIL_FOLDER"),
+        "ssl_verify": _resolve("ssl_verify", True),
+        "whitelist": _resolve("whitelist", []),
+        "mark_read": _resolve("mark_read", True),
+        "idle_timeout": _resolve("idle_timeout", 1500, "EMAIL_IDLE_TIMEOUT"),
     }
 
     if not config["password"] and config["password_file"]:
@@ -433,6 +468,13 @@ def _fetch_new_emails(mail, db, config):
     Reusable by both cmd_poll (--once) and cmd_poll_idle (continuous IDLE).
     Returns the number of new emails processed.
     """
+    # Re-read whitelist from runtime config so changes apply without restart
+    try:
+        fresh_config = load_config()
+        config["whitelist"] = fresh_config.get("whitelist", [])
+    except Exception:
+        pass  # Keep existing whitelist on error
+
     row = db.execute("SELECT value FROM state WHERE key='last_uid'").fetchone()
     last_uid = int(row[0]) if row and row[0].isdigit() else 0
 
