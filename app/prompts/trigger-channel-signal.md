@@ -19,5 +19,10 @@ If a reply seems to reference something you don't have context for (e.g. a remin
 ### CLI Tools
 
 - `signal send "<number>" "<message>"` — Send a message to a Signal contact
+- `signal send "<number>" "<message>" --attach <file>` — Send a message with a file attachment
 - `signal contacts` — List known contacts
 - `signal history "<number>"` — Show message history with a contact
+
+### File Sharing
+
+When sharing files, reports, logs, or any structured content: **always send as a file attachment** using `--attach`, never paste long content as text messages. Signal is a mobile messenger — walls of text are unreadable. Generate the content as a file (HTML, PDF, CSV, etc.) and attach it.
