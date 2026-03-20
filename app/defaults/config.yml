@@ -6,6 +6,7 @@ agent:
   email: "" # Agent email address (optional, for integrations)
 
 models:
+  main: sonnet # Main Claude Code session model
   trigger: opus # Trigger sessions (PM/team lead) — needs strong reasoning
   cron: sonnet # Cron/scheduled trigger sessions
   subagent_review: sonnet # SubagentStop quality gate (prompt hook)

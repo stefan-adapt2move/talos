@@ -25,6 +25,7 @@ import { createConnection, createServer } from "net";
 import type { Server } from "net";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
+import { resolveConfig } from "../lib/config.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -381,46 +382,23 @@ export function buildSystemPrompt(channel: string, options?: {
 }
 
 /**
- * Resolve the model from ~/config.yml or APP_DIR/defaults/config.yml.
- * Falls back to "claude-opus-4-6" if not configured.
+ * Resolve the model for a given trigger type using the unified config system.
+ * Uses resolveConfig() which handles ENV > runtime JSON > config.yml > defaults.
+ * Falls back to models.trigger if the specific type key is not found.
  *
- * @param configPath - Primary config path to check (pass empty string to skip primary and use defaults only)
+ * @param _configPath - Deprecated, kept for API compatibility (ignored)
  * @param triggerType - Model key to look up (e.g. "trigger", "cron")
- * @param extraCandidates - Additional paths to search (replaces default HOME/APP_DIR fallbacks in tests)
+ * @param _extraCandidates - Deprecated, kept for API compatibility (ignored)
  */
 export function resolveModel(
-  configPath: string,
+  _configPath: string,
   triggerType: string,
-  extraCandidates?: string[]
+  _extraCandidates?: string[]
 ): string {
-  const DEFAULT_MODEL = "claude-opus-4-6";
-
-  const candidates = extraCandidates
-    ? [configPath, ...extraCandidates]
-    : [
-        configPath,
-        `${HOME}/config.yml`,
-        `${APP_DIR}/defaults/config.yml`,
-      ];
-
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue;
-    try {
-      const content = readFileSync(candidate, "utf8");
-      const config = yaml.load(content) as Record<string, unknown> | null;
-      if (!config || typeof config !== "object") continue;
-      const models = config.models as Record<string, string> | undefined;
-      if (!models) continue;
-      const model = models[triggerType] ?? models["trigger"];
-      if (model && typeof model === "string") {
-        return model;
-      }
-    } catch {
-      // Malformed YAML, try next
-    }
-  }
-
-  return DEFAULT_MODEL;
+  const homeDir = process.env.HOME ?? "/home/agent";
+  const config = resolveConfig(homeDir);
+  const models = config.models as Record<string, string>;
+  return models[triggerType] ?? models["trigger"] ?? "opus";
 }
 
 /**

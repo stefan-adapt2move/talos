@@ -24,6 +24,7 @@ export interface AgentConfig {
 }
 
 export interface ModelsConfig {
+  main: string;
   trigger: string;
   cron: string;
   subagent_review: string;
@@ -116,7 +117,7 @@ export type ConfigSource = "env" | "runtime" | "file" | "default";
 
 const DEFAULTS: AtlasConfig = {
   agent: { name: "Atlas", email: "" },
-  models: { trigger: "opus", cron: "sonnet", subagent_review: "sonnet", hooks: "haiku" },
+  models: { main: "sonnet", trigger: "opus", cron: "sonnet", subagent_review: "sonnet", hooks: "haiku" },
   memory: { qmd_search_mode: "query", qmd_max_results: 6, load_memory_md: true, load_journal_days: 7 },
   signal: { number: "", history_turns: 20, whitelist: [] },
   email: {
@@ -150,6 +151,7 @@ type EnvMapping = {
 const ENV_MAPPINGS: EnvMapping[] = [
   { env: "ATLAS_AGENT_NAME", aliases: ["AGENT_NAME"], path: "agent.name", type: "string" },
   { env: "ATLAS_AGENT_EMAIL", path: "agent.email", type: "string" },
+  { env: "ATLAS_MODEL_MAIN", path: "models.main", type: "string" },
   { env: "ATLAS_MODEL_TRIGGER", path: "models.trigger", type: "string" },
   { env: "ATLAS_MODEL_CRON", path: "models.cron", type: "string" },
   { env: "ATLAS_MODEL_SUBAGENT_REVIEW", path: "models.subagent_review", type: "string" },
@@ -336,6 +338,25 @@ export function resolveConfig(home?: string): AtlasConfig {
 
   lastSources = sources;
   return config as AtlasConfig;
+}
+
+// ---------------------------------------------------------------------------
+// Model name utilities
+// ---------------------------------------------------------------------------
+
+const MODEL_SHORTHAND: Record<string, string> = {
+  opus: "claude-opus-4-6",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+};
+
+/**
+ * Expand a model shorthand (e.g. "opus") to its full API name
+ * (e.g. "claude-opus-4-6"). If the value is already a full name or
+ * unrecognised, it is returned as-is.
+ */
+export function expandModelName(shorthand: string): string {
+  return MODEL_SHORTHAND[shorthand] ?? shorthand;
 }
 
 /**

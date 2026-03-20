@@ -232,72 +232,77 @@ describe("buildSystemPrompt", () => {
 
 describe("resolveModel", () => {
   let tmpDir: string;
+  let originalHome: string | undefined;
 
   beforeAll(() => {
     tmpDir = makeTempDir();
+    originalHome = process.env.HOME;
+  });
+
+  afterEach(() => {
+    // Restore HOME after each test
+    if (originalHome !== undefined) {
+      process.env.HOME = originalHome;
+    } else {
+      delete process.env.HOME;
+    }
   });
 
   afterAll(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // Note: pass [] as extraCandidates to isolate tests from ~/config.yml on the host
+  // resolveModel now delegates to resolveConfig(HOME), so we control
+  // resolution by pointing HOME at a temp dir with a config.yml.
 
-  test("reads trigger model from config.yml", () => {
-    const configPath = join(tmpDir, "config.yml");
-    writeFileSync(configPath, `
+  test("reads trigger model from config.yml via resolveConfig", () => {
+    writeFileSync(join(tmpDir, "config.yml"), `
 models:
   trigger: claude-sonnet-4-6
   cron: claude-haiku-4-5
 `);
-    expect(resolveModel(configPath, "trigger", [])).toBe("claude-sonnet-4-6");
+    process.env.HOME = tmpDir;
+    expect(resolveModel("", "trigger")).toBe("claude-sonnet-4-6");
   });
 
-  test("reads cron model from config.yml", () => {
-    const configPath = join(tmpDir, "config-cron.yml");
-    writeFileSync(configPath, `
+  test("reads cron model from config.yml via resolveConfig", () => {
+    writeFileSync(join(tmpDir, "config.yml"), `
 models:
   trigger: claude-sonnet-4-6
   cron: claude-haiku-4-5
 `);
-    expect(resolveModel(configPath, "cron", [])).toBe("claude-haiku-4-5");
+    process.env.HOME = tmpDir;
+    expect(resolveModel("", "cron")).toBe("claude-haiku-4-5");
   });
 
   test("falls back to default model when config missing", () => {
-    const nonexistentPath = join(tmpDir, "nonexistent.yml");
-    // Pass [] to prevent falling back to ~/config.yml on the host
-    const model = resolveModel(nonexistentPath, "trigger", []);
-    expect(model).toBe("claude-opus-4-6");
-  });
-
-  test("falls back to default model when key not in config", () => {
-    const configPath = join(tmpDir, "config-no-trigger.yml");
-    writeFileSync(configPath, `
-models:
-  cron: claude-haiku-4-5
-`);
-    // Pass [] to prevent falling back to ~/config.yml on the host
-    const model = resolveModel(configPath, "trigger", []);
-    expect(model).toBe("claude-opus-4-6");
+    const emptyDir = makeTempDir();
+    process.env.HOME = emptyDir;
+    // Default for trigger is "opus" from built-in defaults
+    const model = resolveModel("", "trigger");
+    expect(model).toBe("opus");
+    rmSync(emptyDir, { recursive: true, force: true });
   });
 
   test("falls back to trigger key when specific type not found", () => {
-    const configPath = join(tmpDir, "config-fallback.yml");
-    writeFileSync(configPath, `
+    writeFileSync(join(tmpDir, "config.yml"), `
 models:
   trigger: claude-sonnet-4-6
 `);
-    // Asking for "cron" but only "trigger" is defined — should use trigger as fallback
-    const model = resolveModel(configPath, "cron", []);
+    process.env.HOME = tmpDir;
+    // Asking for "worker" but only "trigger" is defined — should fall back to trigger
+    const model = resolveModel("", "worker");
     expect(model).toBe("claude-sonnet-4-6");
   });
 
   test("handles malformed YAML gracefully", () => {
-    const configPath = join(tmpDir, "broken.yml");
-    writeFileSync(configPath, "{ this is: not valid: yaml: [");
-    // Pass [] to prevent falling back to ~/config.yml on the host
-    const model = resolveModel(configPath, "trigger", []);
-    expect(model).toBe("claude-opus-4-6");
+    const badDir = makeTempDir();
+    writeFileSync(join(badDir, "config.yml"), "{ this is: not valid: yaml: [");
+    process.env.HOME = badDir;
+    // Malformed YAML => falls back to defaults; trigger default is "opus"
+    const model = resolveModel("", "trigger");
+    expect(model).toBe("opus");
+    rmSync(badDir, { recursive: true, force: true });
   });
 });
 
