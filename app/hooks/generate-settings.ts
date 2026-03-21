@@ -147,7 +147,7 @@ const settings: Record<string, unknown> = {
 mkdirSync(HOME + "/.claude", { recursive: true });
 writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
 
-// Generate trigger MCP config: base .mcp.json + atlas-mcp + memory
+// Generate trigger MCP config: base .mcp.json + atlas-mcp
 const MCP_BASE_PATH = "/atlas/app/.mcp.json";
 const MCP_TRIGGER_PATH = HOME + "/.mcp-trigger.json";
 try {
@@ -156,7 +156,6 @@ try {
     command: "bun",
     args: ["run", "/atlas/app/atlas-mcp/index.ts"],
   };
-  baseMcp.mcpServers.memory = { command: "qmd", args: ["mcp"] };
   writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
   console.log("Trigger MCP config generated: " + MCP_TRIGGER_PATH);
 } catch (e) {

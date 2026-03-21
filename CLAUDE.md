@@ -37,7 +37,7 @@ Trigger Event → trigger.sh → trigger-runner (native binary) → Trigger Sess
 - [docs/task-runner.md](docs/task-runner.md) — Path locking for parallel agent work
 - [docs/hooks.md](docs/hooks.md) — Lifecycle hooks
 - [docs/watcher.md](docs/watcher.md) — Trigger concurrency and IPC injection
-- [docs/qmd-memory.md](docs/qmd-memory.md) — Memory and search
+- [docs/memory.md](docs/memory.md) — Memory and search
 - [docs/web-ui.md](docs/web-ui.md) — Dashboard and API
 - [docs/directory-structure.md](docs/directory-structure.md) — Filesystem layout
 - [docs/development.md](docs/development.md) — Developer guide

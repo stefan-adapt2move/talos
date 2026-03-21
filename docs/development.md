@@ -50,7 +50,6 @@ Services managed by supervisord:
 - `web-ui` — Dashboard (port 3000)
 - `atlas-mcp` — Path locking MCP server (stdio)
 - `playwright-mcp` — Playwright browser automation (port 8931)
-- `qmd` — Memory search (port 8181)
 - `supercronic` — Cron runner
 
 ## Rebuild After Code Changes

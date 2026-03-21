@@ -48,7 +48,6 @@ Already-running services available in the container:
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| QMD (memory) | `http://localhost:8181/mcp` | Already configured as system server |
 | Playwright | `http://localhost:8931/sse` | Already configured in default user.json |
 
 ## Running an MCP Server as a Daemon (supervisord)

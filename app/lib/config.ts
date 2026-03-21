@@ -32,8 +32,6 @@ export interface ModelsConfig {
 }
 
 export interface MemoryConfig {
-  qmd_search_mode: string;
-  qmd_max_results: number;
   load_memory_md: boolean;
   load_journal_days: number;
 }
@@ -118,7 +116,7 @@ export type ConfigSource = "env" | "runtime" | "file" | "default";
 const DEFAULTS: AtlasConfig = {
   agent: { name: "Atlas", email: "" },
   models: { main: "sonnet", trigger: "opus", cron: "sonnet", subagent_review: "sonnet", hooks: "haiku" },
-  memory: { qmd_search_mode: "query", qmd_max_results: 6, load_memory_md: true, load_journal_days: 7 },
+  memory: { load_memory_md: true, load_journal_days: 7 },
   signal: { number: "", history_turns: 20, whitelist: [] },
   email: {
     imap_host: "", imap_port: 993, smtp_host: "", smtp_port: 587,
@@ -156,8 +154,6 @@ const ENV_MAPPINGS: EnvMapping[] = [
   { env: "ATLAS_MODEL_CRON", path: "models.cron", type: "string" },
   { env: "ATLAS_MODEL_SUBAGENT_REVIEW", path: "models.subagent_review", type: "string" },
   { env: "ATLAS_MODEL_HOOKS", path: "models.hooks", type: "string" },
-  { env: "ATLAS_MEMORY_QMD_SEARCH_MODE", path: "memory.qmd_search_mode", type: "string" },
-  { env: "ATLAS_MEMORY_QMD_MAX_RESULTS", path: "memory.qmd_max_results", type: "number" },
   { env: "ATLAS_MEMORY_LOAD_MEMORY_MD", path: "memory.load_memory_md", type: "boolean" },
   { env: "ATLAS_MEMORY_LOAD_JOURNAL_DAYS", path: "memory.load_journal_days", type: "number" },
   { env: "ATLAS_SIGNAL_NUMBER", aliases: ["SIGNAL_NUMBER"], path: "signal.number", type: "string" },

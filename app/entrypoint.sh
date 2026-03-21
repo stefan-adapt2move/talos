@@ -12,9 +12,6 @@ chown agent:agent /var/run
 mkdir -p /var/log/nginx /var/lib/nginx/body
 chown -R agent:agent /var/log/nginx /var/lib/nginx
 
-# Clean up stale QMD PID files from previous runs
-rm -f /home/agent/.cache/qmd/*.pid /tmp/qmd*.pid 2>/dev/null || true
-
 # Clean stale state from previous container run (new PID namespace = all stale)
 if [ -f "/home/agent/.index/atlas.db" ]; then
   sqlite3 "/home/agent/.index/atlas.db" "DELETE FROM path_locks;" 2>/dev/null || true

@@ -58,4 +58,3 @@ All memory files use YAML frontmatter (`type`, `date`, `tags`, `related`, `statu
 4. Verify `[[wikilinks]]` resolve to existing files — remove broken links
 5. Scan entity and project files for staleness or duplication
 6. Ensure IDENTITY.md and SOUL.md exist and contain relevant content
-7. Run `qmd update` after making changes to reindex

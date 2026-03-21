@@ -73,7 +73,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chmod +x /usr/local/bin/typst \
   # --- npm globals ---
   && npm install -g @playwright/mcp \
-  && (npm install -g @tobilu/qmd || true) \
   && npm cache clean --force
 
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
@@ -96,7 +95,6 @@ RUN mkdir -p /atlas/app/hooks \
   /home/agent/triggers \
   /home/agent/secrets \
   /home/agent/helpers \
-  /home/agent/.qmd-cache \
   /atlas/logs
 
 # Copy application code

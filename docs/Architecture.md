@@ -18,10 +18,10 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 │               │  triggers │ trigger_sessions │ path_locks  │            │
 │               └──────────────────────────────────────────┘            │
 │                                                                        │
-│  ┌────────────┐   ┌────────────┐                                      │
-│  │ supercronic│   │    qmd     │                                      │
-│  │ (cron)     │   │   :8181    │                                      │
-│  └────────────┘   └────────────┘                                      │
+│  ┌────────────┐                                                        │
+│  │ supercronic│                                                        │
+│  │ (cron)     │                                                        │
+│  └────────────┘                                                        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -33,7 +33,6 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 | **web-ui** | 3000 | Hono.js + HTMX dashboard | [web-ui.md](web-ui.md) |
 | **atlas-mcp** | stdio | MCP server for path locking tools | [inbox-mcp.md](inbox-mcp.md) |
 | **supercronic** | — | Cron job runner | [Triggers.md](Triggers.md) |
-| **qmd** | 8181 | Memory search daemon | [qmd-memory.md](qmd-memory.md) |
 
 ## Data Flow
 
@@ -50,7 +49,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ### Trigger Session (Project Manager)
 - **Spawned by**: `trigger.sh` per event via `trigger-runner` (compiled Bun binary)
 - **System prompt**: SOUL + IDENTITY + trigger-system-prompt + channel-specific prompt
-- **MCP tools**: `path_lock`, `path_unlock`, `path_lock_status` + memory (qmd)
+- **MCP tools**: `path_lock`, `path_unlock`, `path_lock_status`
 - **Purpose**: User communication, task planning, memory management, team coordination
 - **Lifecycle**: Persistent sessions survive container restarts (resume via SDK) and are auto-recovered when stale (see [watcher.md](watcher.md))
 
@@ -61,6 +60,15 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 - **Constraint**: Cannot spawn further teammates; communicate via `SendMessage`
 
 See [Triggers.md](Triggers.md) for the full trigger lifecycle.
+
+## Memory System
+
+Memory is stored as plain Markdown files in `~/memory/` with YAML frontmatter and `[[wikilinks]]` for cross-referencing. There is no indexing daemon — retrieval is done directly via grep, glob, and file reads through specialized sub-agents:
+
+- **memory-searcher** — Finds information using grep/glob patterns across the memory directory
+- **memory-writer** — Persists new knowledge into the correct memory files with proper structure
+
+See [memory.md](memory.md) for the full memory system documentation.
 
 ## Parallel Execution
 
@@ -98,7 +106,7 @@ See [hooks.md](hooks.md) for details.
 
 - [inbox-mcp.md](inbox-mcp.md) — Database schema, MCP tools, path locking
 - [hooks.md](hooks.md) — Lifecycle hook system
-- [qmd-memory.md](qmd-memory.md) — Memory and search system
+- [memory.md](memory.md) — Memory and search system
 - [web-ui.md](web-ui.md) — Dashboard and API
 - [directory-structure.md](directory-structure.md) — Filesystem layout
 - [development.md](development.md) — Developer guide

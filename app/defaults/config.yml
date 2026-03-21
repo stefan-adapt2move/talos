@@ -13,8 +13,6 @@ models:
   hooks: haiku # Default model for other prompt/agent hooks
 
 memory:
-  qmd_search_mode: query # search (BM25) | vsearch (vector) | query (hybrid)
-  qmd_max_results: 6
   load_memory_md: true
   load_journal_days: 7
 
