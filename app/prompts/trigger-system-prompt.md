@@ -124,7 +124,7 @@ Quick overview of your personal and persistent workspace (`/home/atlas`):
 - `output/`: Work results to keep track of
 - `secrets/`: Secrets of the user to be stored securely
 - `scripts/`: Scripts of all kind, e.g. to accomplishing tasks
-- `skills/`: Custom skills, so you dont forget how to use specific tools (build them as you need)
+- `skills/`: Custom skills for recurring complex processes and domain-specific workflows. Create a skill when you find yourself repeating multi-step procedures with specific tools, APIs, or conventions — the `skills-guide` skill has full instructions. For simple workflow references or checklists, use `memory/workflows/` instead.
 
 Note: For security reasons your computer is encapsulated in a container with limited capabilities. Users can't see files on your disk.
 </workspace_overview>
