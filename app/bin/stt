@@ -1,0 +1,15 @@
+#!/bin/bash
+# Speech-to-Text — transcribe audio files via Whisper-compatible API
+# Delegates to the stt skill script, or uses inline implementation if skill not installed.
+
+SKILL_SCRIPT="$HOME/skills/stt/scripts/stt.sh"
+DEFAULT_SCRIPT="/atlas/app/defaults/skills/stt/scripts/stt.sh"
+
+if [[ -x "$SKILL_SCRIPT" ]]; then
+  exec "$SKILL_SCRIPT" "$@"
+elif [[ -x "$DEFAULT_SCRIPT" ]]; then
+  exec "$DEFAULT_SCRIPT" "$@"
+else
+  echo "ERROR: stt skill script not found" >&2
+  exit 1
+fi
