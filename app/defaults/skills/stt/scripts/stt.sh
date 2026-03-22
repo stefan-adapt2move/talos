@@ -3,12 +3,44 @@
 # Usage: stt [--language LANG] <file-or-url>
 set -euo pipefail
 
-STT_URL="${STT_URL:-http://stt:5092/v1/audio/transcriptions}"
 CHUNK_SIZE=120   # seconds
 OVERLAP=5        # seconds overlap between chunks
+CONFIG_FILE="${HOME}/config.yml"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# Read STT config: env var > config.yml > default
+resolve_stt_url() {
+  if [[ -n "${STT_URL:-}" ]]; then
+    echo "$STT_URL"
+    return
+  fi
+
+  # Parse config.yml for stt.url
+  if [[ -f "$CONFIG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+    local url
+    url=$(python3 -c "
+import yaml, sys
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = yaml.safe_load(f) or {}
+    stt = cfg.get('stt', {})
+    if not stt.get('enabled', True):
+        sys.exit(1)
+    print(stt.get('url', ''))
+except:
+    pass
+" 2>/dev/null)
+    if [[ -n "$url" ]]; then
+      echo "$url"
+      return
+    fi
+  fi
+
+  echo "http://stt:5092/v1/audio/transcriptions"
+}
+
+STT_URL=$(resolve_stt_url)
 language=""
 file=""
 
@@ -25,6 +57,8 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --language, -l  Language hint (e.g. 'de', 'en')"
       echo "  --help, -h      Show this help"
+      echo ""
+      echo "STT endpoint: $STT_URL"
       exit 0
       ;;
     *) file="$1"; shift ;;
