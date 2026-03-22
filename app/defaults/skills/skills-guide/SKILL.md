@@ -223,3 +223,5 @@ After creating a skill, test it against real tasks. Then refine:
 - **Instructions ignored?** Move critical rules to the top, use bullet points
 - **Agent wastes steps?** Instructions may be too vague or include irrelevant options
 - **Repeated mistakes?** Add to gotchas section — this is the most direct improvement path
+
+For rigorous iteration with eval frameworks, benchmarking, and description optimization, use the `skill-creator` skill instead — it provides a full workflow with test cases, grading, and automated description tuning.
