@@ -403,7 +403,7 @@ export function resolveModel(
 
 /**
  * Returns the MCP servers config object for the query() call.
- * Merges system servers (work, memory) with user servers from:
+ * Merges system servers (work) with user servers from:
  *   1. ~/.atlas-mcp/user.json (Atlas-managed user config)
  *   2. ~/.mcp.json (standard Claude MCP config)
  * Only stdio-based servers are included (URL-based cause silent exit issues with --mcp-config).
@@ -413,10 +413,6 @@ export function getMcpServers(): Record<string, Record<string, unknown>> {
     work: {
       command: "bun",
       args: ["run", "/atlas/app/atlas-mcp/index.ts"],
-    },
-    memory: {
-      command: "qmd",
-      args: ["mcp"],
     },
   };
 

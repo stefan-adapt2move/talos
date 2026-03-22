@@ -71,11 +71,10 @@ Atlas runs entirely in a single Docker container managed by supervisord:
 | **nginx** | 8080 | Reverse proxy to web-ui |
 | **web-ui** | 3000 | Hono.js + HTMX dashboard |
 | **atlas-mcp** | stdio | MCP server for Claude's work management tools |
-| **qmd** | 8181 | Memory search (BM25/vector/hybrid) |
 | **watcher** | — | inotifywait loop, resumes Claude on `.wake` |
 | **supercronic** | — | Cron job runner |
 
-See [docs/Architecture.md](docs/Architecture.md) for component overview, [docs/atlas-mcp.md](docs/inbox-mcp.md) for MCP tools, and [docs/qmd-memory.md](docs/qmd-memory.md) for memory search.
+See [docs/Architecture.md](docs/Architecture.md) for component overview, [docs/atlas-mcp.md](docs/inbox-mcp.md) for MCP tools, and [docs/memory.md](docs/memory.md) for memory system.
 
 ## Triggers
 
@@ -154,9 +153,8 @@ System settings for memory search, cleanup behavior, and web-ui. Claude reads th
 
 ```yaml
 memory:
-  qmd_search_mode: search     # search | vsearch | query
-  qmd_max_results: 6
   load_memory_md: true
+  load_journal_days: 7
 
 daily_cleanup:
   enabled: true
@@ -203,12 +201,10 @@ Claude has access to these tools via the inbox-mcp server:
 - `trigger_update` — Modify trigger settings
 - `trigger_delete` — Remove trigger
 
-**Memory (QMD):**
-- `qmd_search` — BM25 text search
-- `qmd_vector_search` — Semantic vector search
-- `qmd_deep_search` — Combined hybrid search
+**Memory:**
+Memory is handled via specialized sub-agents (`memory-searcher`, `memory-writer`) that use grep, glob, and file reads directly — no external MCP server needed.
 
-See [docs/atlas-mcp.md](docs/atlas-mcp.md) for work management tools, [docs/qmd-memory.md](docs/qmd-memory.md) for memory tools, and [docs/hooks.md](docs/hooks.md) for lifecycle hooks.
+See [docs/atlas-mcp.md](docs/atlas-mcp.md) for work management tools, [docs/memory.md](docs/memory.md) for memory system, and [docs/hooks.md](docs/hooks.md) for lifecycle hooks.
 
 ## Logs
 
@@ -242,7 +238,7 @@ See [docs/development.md](docs/development.md) for more development commands.
 - [docs/atlas-mcp.md](docs/atlas-mcp.md) — Work management tools system
 - [docs/hooks.md](docs/hooks.md) — Lifecycle hooks
 - [docs/watcher.md](docs/watcher.md) — Event-driven wake system
-- [docs/qmd-memory.md](docs/qmd-memory.md) — Memory and search
+- [docs/memory.md](docs/memory.md) — Memory and search
 - [docs/web-ui.md](docs/web-ui.md) — Dashboard and API
 - [docs/directory-structure.md](docs/directory-structure.md) — Filesystem layout
 - [docs/development.md](docs/development.md) — Developer guide

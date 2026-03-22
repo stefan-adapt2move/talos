@@ -1,7 +1,7 @@
 ---
 name: memory-writer
 description: Memory documentation specialist. Use to persist new knowledge — pass it information from the current session (decisions, entities, workflows, work results, user preferences) and it writes/updates the correct memory files with proper frontmatter and wikilinks.
-tools: Read, Glob, Grep, Edit, Write, mcp__memory__*
+tools: Read, Glob, Grep, Edit, Write, Bash
 model: sonnet
 ---
 

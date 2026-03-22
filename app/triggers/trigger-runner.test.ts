@@ -311,22 +311,16 @@ models:
 // ---------------------------------------------------------------------------
 
 describe("getMcpServers", () => {
-  test("returns work and memory servers", () => {
+  test("returns work server", () => {
     const servers = getMcpServers();
     expect(servers).toHaveProperty("work");
-    expect(servers).toHaveProperty("memory");
+    expect(servers).not.toHaveProperty("memory");
   });
 
   test("work server uses bun command", () => {
     const servers = getMcpServers();
     expect(servers.work.command).toBe("bun");
     expect((servers.work.args as string[]).some((a) => a.includes("atlas-mcp"))).toBe(true);
-  });
-
-  test("memory server uses qmd command", () => {
-    const servers = getMcpServers();
-    expect(servers.memory.command).toBe("qmd");
-    expect(servers.memory.args).toContain("mcp");
   });
 
   test("does not include URL-based servers", () => {

@@ -35,7 +35,7 @@ Event arrives (cron / webhook / manual)
 |---|---|
 | **Role** | Project manager, user communication, team coordination |
 | **System prompt** | SOUL + IDENTITY + trigger-system-prompt + channel prompt |
-| **MCP tools** | `path_lock/unlock/status`, memory (qmd) |
+| **MCP tools** | `path_lock/unlock/status` |
 | **Spawned by** | `trigger.sh` per event |
 | **Session persistence** | Configurable per trigger (ephemeral or persistent) |
 
@@ -276,7 +276,7 @@ Name:           standup-reminder
 Type:           Cron
 Schedule:       0 9 * * 1-5
 Session Mode:   ephemeral
-Prompt:         Prepare a standup summary using qmd_search to check recent memory.
+Prompt:         Prepare a standup summary by reading recent journal entries and memory.
                 If there are pending items that need attention, delegate via Agent.
 ```
 

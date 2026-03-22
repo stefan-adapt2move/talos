@@ -44,8 +44,7 @@ mkdir -p "$WORKSPACE/memory/projects" \
          "$WORKSPACE/triggers" \
          "$WORKSPACE/secrets" \
          "$WORKSPACE/bin" \
-         "$WORKSPACE/supervisor.d" \
-         "$WORKSPACE/.qmd-cache"
+         "$WORKSPACE/supervisor.d"
 
 # ── Migration: Consolidate .claude/projects memory into ~/memory/ ──
 AGENT_USER=$(basename "$HOME")
@@ -110,12 +109,6 @@ if [ ! -f "$WORKSPACE/memory/MEMORY.md" ]; then
 - [Commit conventions, branch strategy, delegation patterns, etc.]
 MEMEOF
   echo "  Created default MEMORY.md"
-fi
-
-# Set up QMD memory collection (idempotent)
-if command -v qmd >/dev/null 2>&1; then
-  qmd collection add "$WORKSPACE/memory/" --name "atlas-memory" 2>/dev/null || true
-  echo "  QMD memory collection configured"
 fi
 
 # ── Phase 2b: ENV Secret Bridge ──

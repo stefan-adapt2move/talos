@@ -736,7 +736,7 @@ app.get("/memory/search", (c) => {
     return c.html(`<div class="text-muted">No results for "${safe(q)}".</div>`);
   const capped =
     results.length >= MAX_RESULTS
-      ? `<div class="text-muted mb-8">Showing first ${MAX_RESULTS} results. Use QMD search for comprehensive results.</div>`
+      ? `<div class="text-muted mb-8">Showing first ${MAX_RESULTS} results. Use grep for comprehensive results.</div>`
       : "";
   return c.html(
     capped +
