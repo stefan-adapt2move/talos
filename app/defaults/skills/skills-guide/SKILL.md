@@ -92,17 +92,6 @@ description: Useful information about documents.
 description: Implements the document entity model with hierarchical relationships.
 ```
 
-#### Optional frontmatter fields
-
-```yaml
-license: MIT
-compatibility: Requires Python 3.10+
-allowed-tools: "Bash(python:*) WebFetch"
-metadata:
-  author: Your Name
-  version: 1.0.0
-```
-
 ### Body — Writing Effective Instructions
 
 #### Start from real expertise
