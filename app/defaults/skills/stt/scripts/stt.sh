@@ -11,6 +11,11 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Read STT config: env var > config.yml > default
 resolve_stt_url() {
+  # Check both ATLAS_STT_URL (Unclutter cluster convention) and STT_URL
+  if [[ -n "${ATLAS_STT_URL:-}" ]]; then
+    echo "$ATLAS_STT_URL"
+    return
+  fi
   if [[ -n "${STT_URL:-}" ]]; then
     echo "$STT_URL"
     return

@@ -37,7 +37,7 @@ curl -X POST "$STT_URL" \
 
 Response: `{"text": "transcribed text here"}`
 
-The `STT_URL` is read from `config.yml` (`stt.url`) or the `STT_URL` env var.
+The URL is resolved from: `ATLAS_STT_URL` env → `STT_URL` env → `config.yml` (`stt.url`) → default.
 
 ## Limitations
 
