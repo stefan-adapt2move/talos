@@ -177,8 +177,8 @@ if [ -n "${ATLAS_PROJECTS_DIR:-}" ] && [ "$ATLAS_PROJECTS_DIR" != "$WORKSPACE/pr
 fi
 
 # ── Phase 2e: Runtime Tool Install ──
-# Claude CLI + Playwright browsers installed at runtime (too heavy for
-# Kaniko on 8GB workers). Cached on PVC so only runs once per volume.
+# Claude CLI installed at runtime (too heavy for Kaniko on 8GB workers).
+# Cached on PVC so only runs once per volume.
 RUNTIME_MARKER="$WORKSPACE/.index/.runtime-tools-installed"
 echo "[$(date)] Phase 2e: Runtime tool install"
 if [ ! -f "$RUNTIME_MARKER" ]; then
@@ -195,11 +195,6 @@ if [ ! -f "$RUNTIME_MARKER" ]; then
     sleep ${i}0
   done
   claude --version 2>/dev/null && echo "  Claude CLI installed" || echo "  ⚠ Claude CLI install failed"
-
-  # Playwright browsers (chromium only)
-  echo "  Installing Playwright browsers..."
-  npx playwright install --with-deps chromium 2>/dev/null || true
-  echo "  Playwright browsers installed"
 
   touch "$RUNTIME_MARKER"
   echo "  Runtime tools installed and cached"
@@ -263,7 +258,7 @@ for old_skill in "$WORKSPACE"/skills/*.md; do
 done
 
 # Remove stale system skill copies (now linked from app)
-for skill_name in dependencies playwright triggers; do
+for skill_name in dependencies playwright triggers agent-browser browser; do
   [ -d "$WORKSPACE/skills/$skill_name" ] && rm -rf "$WORKSPACE/skills/$skill_name" \
     && echo "  Cleaned up stale system skill: $skill_name"
 done
@@ -440,7 +435,6 @@ bun run /atlas/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (
 echo "[$(date)] Phase 10: Starting services"
 supervisorctl start atlas-mcp || true
 sleep 1
-supervisorctl start playwright-mcp || true
 supervisorctl start web-ui || true
 
 # Check pause state before starting cron
