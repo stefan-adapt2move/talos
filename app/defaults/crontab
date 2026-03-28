@@ -7,3 +7,6 @@
 # Daily session cleanup at 06:00 (special: uses --max-turns and session resume)
 0 6 * * *  /atlas/app/triggers/cron/daily-cleanup.sh
 
+# Watchdog: detect and kill stuck trigger-runner processes (>30min)
+*/5 * * * *  /atlas/app/scripts/watchdog-triggers.sh 2>/dev/null
+
