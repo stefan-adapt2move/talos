@@ -1,7 +1,13 @@
 #!/bin/bash
 export PYTHONUNBUFFERED=1
-export TELEGRAM_BOT_TOKEN="${ANTON_BOT_TOKEN:?ANTON_BOT_TOKEN env var required}"
+# Load bot token from env var or secrets file
+export TELEGRAM_BOT_TOKEN="${ANTON_BOT_TOKEN:-$(cat "$HOME/secrets/anton-bot-token" 2>/dev/null)}"
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "ERROR: ANTON_BOT_TOKEN not set and ~/secrets/anton-bot-token not found" >&2
+  exit 1
+fi
 export TELEGRAM_TRIGGER_NAME=anton-chat
 export TELEGRAM_GROUP_MENTION_FILTER="@Anton_der_ameisenbaer_bot"
-export TELEGRAM_WHITELIST="${ANTON_WHITELIST:-[]}"
+# Load whitelist from env var or secrets file
+export TELEGRAM_WHITELIST="${ANTON_WHITELIST:-$(cat "$HOME/secrets/anton-whitelist.json" 2>/dev/null || echo '[]')}"
 exec python3 -u /atlas/app/integrations/telegram/telegram-addon.py "$@"

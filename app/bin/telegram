@@ -1,3 +1,5 @@
 #!/bin/bash
 export PYTHONUNBUFFERED=1
+# Load bot token from env var or secrets file
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(cat "$HOME/secrets/telegram-token" 2>/dev/null)}"
 exec python3 -u /atlas/app/integrations/telegram/telegram-addon.py "$@"
