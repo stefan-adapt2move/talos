@@ -1,6 +1,6 @@
 # Usage Reporting
 
-Atlas can report session metrics to an external webhook after each session completes. This enables billing based on actual work hours, monitoring agent utilization, and integrating with external dashboards.
+Talos can report session metrics to an external webhook after each session completes. This enables billing based on actual work hours, monitoring agent utilization, and integrating with external dashboards.
 
 ## Configuration
 
@@ -23,7 +23,7 @@ usage_reporting:
 
 ## Webhook Payload
 
-After each session completes, Atlas sends a `POST` request to the configured endpoint.
+After each session completes, Talos sends a `POST` request to the configured endpoint.
 
 ### Base Payload
 
@@ -80,13 +80,13 @@ When `include_tokens` is enabled, additional fields are included:
 
 ## Authentication
 
-If `webhook_secret` is configured, Atlas includes it as a header:
+If `webhook_secret` is configured, Talos includes it as a header:
 
 ```
 X-Webhook-Secret: your-shared-secret
 ```
 
-Your endpoint should validate this header to ensure requests originate from Atlas.
+Your endpoint should validate this header to ensure requests originate from Talos.
 
 ## Behavior
 

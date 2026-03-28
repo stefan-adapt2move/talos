@@ -1,6 +1,6 @@
 # Architecture
 
-Atlas is a single-container system that turns Claude Code into a persistent, event-driven agent. This document provides a high-level component overview.
+Talos is a single-container system that turns Claude Code into a persistent, event-driven agent. This document provides a high-level component overview.
 
 ## System Overview
 
@@ -8,13 +8,13 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 ┌─────────────────── Docker Container (supervisord) ────────────────────┐
 │                                                                        │
 │  ┌─────────┐   ┌──────────┐   ┌──────────┐                           │
-│  │  nginx   │──▸│  web-ui  │   │ atlas-mcp│                           │
+│  │  nginx   │──▸│  web-ui  │   │ talos-mcp│                           │
 │  │  :8080   │   │  :3000   │   │  (stdio) │                           │
 │  └─────────┘   └──────────┘   └──────────┘                           │
 │                      │               │                                 │
 │                      ▼               ▼                                 │
 │               ┌──────────────────────────────────────────┐            │
-│               │          atlas.db (SQLite)                │            │
+│               │          talos.db (SQLite)                │            │
 │               │  triggers │ trigger_sessions │ path_locks  │            │
 │               └──────────────────────────────────────────┘            │
 │                                                                        │
@@ -31,7 +31,7 @@ Atlas is a single-container system that turns Claude Code into a persistent, eve
 |-----------|------|---------|---------------|
 | **nginx** | 8080 | Reverse proxy to web-ui | [web-ui.md](web-ui.md) |
 | **web-ui** | 3000 | Hono.js + HTMX dashboard | [web-ui.md](web-ui.md) |
-| **atlas-mcp** | stdio | MCP server for path locking tools | [inbox-mcp.md](inbox-mcp.md) |
+| **talos-mcp** | stdio | MCP server for path locking tools | [inbox-mcp.md](inbox-mcp.md) |
 | **supercronic** | — | Cron job runner | [Triggers.md](Triggers.md) |
 
 ## Data Flow
@@ -84,7 +84,7 @@ Path conflicts are checked bidirectionally: a lock on `/home/agent/projects/app`
 
 | Location | Access | Contents |
 |----------|--------|----------|
-| `/atlas/app/` | Read-only | Core code, hooks, MCP server, prompts |
+| `/talos/app/` | Read-only | Core code, hooks, MCP server, prompts |
 | `/home/agent/` | Read-write | Memory, system state, config, identity, skills |
 
 See [directory-structure.md](directory-structure.md) for details.

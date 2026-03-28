@@ -36,7 +36,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), "atlas-trigger-test-"));
+  return mkdtempSync(join(tmpdir(), "talos-trigger-test-"));
 }
 
 function createInMemoryDb(): Database {
@@ -158,10 +158,10 @@ describe("buildSystemPrompt", () => {
   });
 
   test("includes SOUL.md wrapped in soul tags", () => {
-    writeFileSync(join(workspace, "SOUL.md"), "You are Atlas.");
+    writeFileSync(join(workspace, "SOUL.md"), "You are Talos.");
     const result = buildSystemPrompt("internal", { appDir, workspace });
     expect(result).toContain("<soul");
-    expect(result).toContain("You are Atlas.");
+    expect(result).toContain("You are Talos.");
     expect(result).toContain("</soul>");
   });
 
@@ -320,7 +320,7 @@ describe("getMcpServers", () => {
   test("work server uses bun command", () => {
     const servers = getMcpServers();
     expect(servers.work.command).toBe("bun");
-    expect((servers.work.args as string[]).some((a) => a.includes("atlas-mcp"))).toBe(true);
+    expect((servers.work.args as string[]).some((a) => a.includes("talos-mcp"))).toBe(true);
   });
 
   test("does not include URL-based servers", () => {

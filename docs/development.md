@@ -1,6 +1,6 @@
 # Development Guide
 
-Building and running Atlas for development.
+Building and running Talos for development.
 
 ## Build
 
@@ -19,7 +19,7 @@ The Web-UI is available at http://localhost:8080.
 ## OAuth Login (One-Time)
 
 ```bash
-docker run -it --rm -v $(pwd)/volume:/home/agent atlas claude login
+docker run -it --rm -v $(pwd)/volume:/home/agent talos claude login
 ```
 
 This stores credentials in `volume/.claude/` for persistence across restarts.
@@ -31,24 +31,24 @@ This stores credentials in `volume/.claude/` for persistence across restarts.
 docker compose logs -f
 
 # Specific services
-docker compose logs -f atlas
+docker compose logs -f talos
 
 # Inside container
-docker compose exec atlas tail -f /atlas/logs/init.log
-docker compose exec atlas tail -f /atlas/logs/trigger-<name>.log
-docker compose exec atlas tail -f /atlas/logs/atlas-mcp.log
+docker compose exec talos tail -f /talos/logs/init.log
+docker compose exec talos tail -f /talos/logs/trigger-<name>.log
+docker compose exec talos tail -f /talos/logs/talos-mcp.log
 ```
 
 ## Service Status
 
 ```bash
-docker compose exec atlas supervisorctl status
+docker compose exec talos supervisorctl status
 ```
 
 Services managed by supervisord:
 - `nginx` — Reverse proxy (port 8080)
 - `web-ui` — Dashboard (port 3000)
-- `atlas-mcp` — Path locking MCP server (stdio)
+- `talos-mcp` — Path locking MCP server (stdio)
 - `playwright-mcp` — Playwright browser automation (port 8931)
 - `supercronic` — Cron runner
 
@@ -61,13 +61,13 @@ docker compose build && docker compose up -d
 ## Access Container Shell
 
 ```bash
-docker compose exec atlas bash
+docker compose exec talos bash
 ```
 
 ## Database Access
 
 ```bash
-docker compose exec atlas sqlite3 /home/agent/.index/atlas.db
+docker compose exec talos sqlite3 /home/agent/.index/talos.db
 ```
 
 ## Test Webhook Locally
@@ -82,16 +82,16 @@ curl -X POST http://localhost:8080/api/webhook/test-trigger \
 
 | Variable | Purpose |
 |----------|---------|
-| `ATLAS_TRIGGER` | Set to trigger name when running as trigger session |
-| `ATLAS_TRIGGER_CHANNEL` | Channel for trigger context (internal, signal, email, web) |
-| `ATLAS_TRIGGER_SESSION_KEY` | Session key for persistent triggers |
+| `TALOS_TRIGGER` | Set to trigger name when running as trigger session |
+| `TALOS_TRIGGER_CHANNEL` | Channel for trigger context (internal, signal, email, web) |
+| `TALOS_TRIGGER_SESSION_KEY` | Session key for persistent triggers |
 | `CLAUDE_SESSION_ID` | Current session ID (set by Claude Code) |
 
 ## File Locations in Container
 
 | Path | Purpose |
 |------|---------|
-| `/atlas/app/` | Core code (read-only) |
+| `/talos/app/` | Core code (read-only) |
 | `/home/agent/` | Persistent data |
-| `/atlas/logs/` | Log files |
+| `/talos/logs/` | Log files |
 | `/home/agent/.claude/` | Claude Code config |

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-DB=$HOME/.index/atlas.db
+DB=$HOME/.index/talos.db
 
 # Prune old data (30 days)
 if [ -f "$DB" ]; then
@@ -14,4 +14,4 @@ SQL
   echo "[$(date)] DB pruned (30-day retention, 90-day metrics)"
 fi
 
-echo "[$(date)] Daily cleanup done" >> /atlas/logs/cleanup.log
+echo "[$(date)] Daily cleanup done" >> /talos/logs/cleanup.log

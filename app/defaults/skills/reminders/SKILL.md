@@ -35,8 +35,8 @@ reminder delete --id=5  # permanently remove
 
 ## How It Works
 
-- Reminders are stored in the SQLite database (`~/.index/atlas.db`) in the `reminders` table
-- A cron job checks for due reminders every minute: `* * * * * bun /atlas/app/triggers/manage-reminders.ts check`
+- Reminders are stored in the SQLite database (`~/.index/talos.db`) in the `reminders` table
+- A cron job checks for due reminders every minute: `* * * * * bun /talos/app/triggers/manage-reminders.ts check`
 - When a reminder fires, it spawns an ephemeral Claude session with the reminder's prompt
 - Fired and cancelled reminders older than 30 days are automatically cleaned up by the daily cleanup job
 
@@ -44,4 +44,4 @@ reminder delete --id=5  # permanently remove
 
 - The `--at` time is stored in UTC internally; it is displayed in local time when listing
 - Each reminder fires exactly once — use recurring cron triggers for repeating events
-- The `--channel` flag (default: `internal`) sets the `ATLAS_TRIGGER_CHANNEL` environment variable for the spawned session
+- The `--channel` flag (default: `internal`) sets the `TALOS_TRIGGER_CHANNEL` environment variable for the spawned session

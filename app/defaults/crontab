@@ -2,19 +2,19 @@
 # Timezone via TZ env variable in the container
 
 # Check for due reminders every minute
-* * * * *  bun /atlas/app/triggers/manage-reminders.ts check >> /atlas/logs/reminders.log 2>&1
+* * * * *  bun /talos/app/triggers/manage-reminders.ts check >> /talos/logs/reminders.log 2>&1
 
 # Daily session cleanup at 06:00 (special: uses --max-turns and session resume)
-0 6 * * *  /atlas/app/triggers/cron/daily-cleanup.sh
+0 6 * * *  /talos/app/triggers/cron/daily-cleanup.sh
 
 # Watchdog: detect and kill stuck trigger-runner processes (>30min)
-*/5 * * * *  /atlas/app/scripts/watchdog-triggers.sh 2>/dev/null
+*/5 * * * *  /talos/app/scripts/watchdog-triggers.sh 2>/dev/null
 
 # --- A2M-specific ---
 
 # Anton calendar reminders (every minute)
-* * * * *  /atlas/app/scripts/anton-reminders.py >> /atlas/logs/anton-reminders.log 2>&1
+* * * * *  /talos/app/scripts/anton-reminders.py >> /talos/logs/anton-reminders.log 2>&1
 
 # Daemon health checks (every 5 minutes)
-*/5 * * * *  /atlas/app/scripts/check-daemon-health.sh >> /atlas/logs/daemon-health.log 2>&1
+*/5 * * * *  /talos/app/scripts/check-daemon-health.sh >> /talos/logs/daemon-health.log 2>&1
 

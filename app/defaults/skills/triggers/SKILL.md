@@ -181,11 +181,11 @@ Default: `webhooks.unclutter.pro` (community-hosted instance).
 Add to `~/supervisor.d/webhook-listener.conf`:
 ```ini
 [program:webhook-listener]
-command=/atlas/app/bin/webhook-listener
+command=/talos/app/bin/webhook-listener
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/webhook-sse.log
-stderr_logfile=/atlas/logs/webhook-sse-error.log
+stdout_logfile=/talos/logs/webhook-sse.log
+stderr_logfile=/talos/logs/webhook-sse-error.log
 ```
 
 Then: `supervisorctl reread && supervisorctl update`
@@ -204,8 +204,8 @@ The agent supports this via `~/supervisor.d/`. Any `.conf` file placed there is 
 command=/path/to/command --args
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/myservice.log
-stderr_logfile=/atlas/logs/myservice-error.log
+stdout_logfile=/talos/logs/myservice.log
+stderr_logfile=/talos/logs/myservice-error.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
 stderr_logfile_maxbytes=1MB
@@ -287,15 +287,15 @@ Create `~/supervisor.d/signal.conf` (replace number with your own):
 command=signal-cli -a +491701234567 daemon --socket /tmp/signal.sock
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/signal-daemon.log
-stderr_logfile=/atlas/logs/signal-daemon-error.log
+stdout_logfile=/talos/logs/signal-daemon.log
+stderr_logfile=/talos/logs/signal-daemon-error.log
 
 [program:signal-listen]
-command=/atlas/app/bin/signal listen
+command=/talos/app/bin/signal listen
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/signal-listen.log
-stderr_logfile=/atlas/logs/signal-listen-error.log
+stdout_logfile=/talos/logs/signal-listen.log
+stderr_logfile=/talos/logs/signal-listen-error.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
 stderr_logfile_maxbytes=1MB
@@ -360,11 +360,11 @@ Please respond directly using `whatsapp send "{{sender}}" "..."`.
 Create `~/supervisor.d/whatsapp.conf`:
 ```ini
 [program:whatsapp-daemon]
-command=bun run /atlas/app/integrations/whatsapp/whatsapp-daemon.ts
+command=bun run /talos/app/integrations/whatsapp/whatsapp-daemon.ts
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/whatsapp-daemon.log
-stderr_logfile=/atlas/logs/whatsapp-daemon-error.log
+stdout_logfile=/talos/logs/whatsapp-daemon.log
+stderr_logfile=/talos/logs/whatsapp-daemon-error.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
 stderr_logfile_maxbytes=1MB
@@ -420,7 +420,7 @@ whatsapp history "+491701234567"
 | Auth credentials | `~/.local/share/whatsapp/auth/` |
 | Downloaded attachments | `~/.local/share/whatsapp/attachments/` |
 | Contact/message DB | `~/.index/whatsapp/whatsapp.db` |
-| Daemon logs | `/atlas/logs/whatsapp-daemon.log` |
+| Daemon logs | `/talos/logs/whatsapp-daemon.log` |
 | Send socket | `/tmp/whatsapp.sock` |
 
 ## Telegram Integration Setup
@@ -464,11 +464,11 @@ Please respond directly using `telegram send "{{sender}}" "..."`.
 Create `~/supervisor.d/telegram.conf`:
 ```ini
 [program:telegram-daemon]
-command=python3 -u /atlas/app/integrations/telegram/telegram-daemon.py
+command=python3 -u /talos/app/integrations/telegram/telegram-daemon.py
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/telegram-daemon.log
-stderr_logfile=/atlas/logs/telegram-daemon-error.log
+stdout_logfile=/talos/logs/telegram-daemon.log
+stderr_logfile=/talos/logs/telegram-daemon-error.log
 stdout_logfile_maxbytes=10MB
 stderr_logfile_maxbytes=1MB
 ```
@@ -494,7 +494,7 @@ telegram setup   # Print setup instructions
 |------|----------|
 | Contact/message DB | `~/.index/telegram/telegram.db` |
 | Downloaded attachments | `~/.local/share/telegram/attachments/` |
-| Daemon logs | `/atlas/logs/telegram-daemon.log` |
+| Daemon logs | `/talos/logs/telegram-daemon.log` |
 
 ## Email Integration Setup
 
@@ -506,8 +506,8 @@ email:
   imap_port: 993
   smtp_host: "smtp.gmail.com"
   smtp_port: 587
-  username: "atlas@example.com"
-  password_file: "/home/atlas/secrets/email-password"
+  username: "talos@example.com"
+  password_file: "/home/talos/secrets/email-password"
   folder: "INBOX"
   whitelist: []   # empty = accept all; or ["alice@example.com", "example.org"]
   mark_read: true
@@ -516,8 +516,8 @@ email:
 **Step 2: Store password**
 
 ```bash
-echo "your-app-password" > /home/atlas/secrets/email-password
-chmod 600 /home/atlas/secrets/email-password
+echo "your-app-password" > /home/talos/secrets/email-password
+chmod 600 /home/talos/secrets/email-password
 ```
 
 For Gmail: use an App Password, not your main password.
@@ -551,11 +551,11 @@ Option A — supervisord (recommended):
 Create `~/supervisor.d/email-poller.conf`:
 ```ini
 [program:email-poller]
-command=/atlas/app/bin/email poll
+command=/talos/app/bin/email poll
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/email-poller.log
-stderr_logfile=/atlas/logs/email-poller-error.log
+stdout_logfile=/talos/logs/email-poller.log
+stderr_logfile=/talos/logs/email-poller-error.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
 stderr_logfile_maxbytes=1MB
@@ -604,9 +604,9 @@ Agent(subagent_type="general-purpose", model="sonnet", prompt="Review critical i
 
 # Complex multi-step work — agent team
 TeamCreate(team_name="deploy-review")
-path_lock("/home/atlas/projects/myapp")
+path_lock("/home/talos/projects/myapp")
 Agent(team_name="deploy-review", name="developer", model="sonnet", prompt="...")
-path_unlock("/home/atlas/projects/myapp")
+path_unlock("/home/talos/projects/myapp")
 TeamDelete()
 ```
 

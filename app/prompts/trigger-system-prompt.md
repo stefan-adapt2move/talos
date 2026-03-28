@@ -118,7 +118,7 @@ Cost-intensive (Opus) — use selectively for high-impact decisions.
 </task_delegation>
 
 <workspace_overview>
-Quick overview of your personal and persistent workspace (`/home/atlas`):
+Quick overview of your personal and persistent workspace (`/home/talos`):
 - `memory/`: Folder to keep track of all your memories
 - `projects/`: All of the users project and space for more
 - `output/`: Work results to keep track of

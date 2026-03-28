@@ -1,8 +1,8 @@
 # Directory Structure
 
-Atlas uses three main filesystem locations with different access patterns.
+Talos uses three main filesystem locations with different access patterns.
 
-## /atlas/app/ (Read-Only)
+## /talos/app/ (Read-Only)
 
 Core application code. Copied into the container image at build time. Not modified at runtime.
 
@@ -28,7 +28,7 @@ app/
 │   ├── pre-compact-manual.sh  # Memory flush on manual compaction
 │   ├── subagent-stop.sh       # Quality gate script (legacy, kept for reference)
 │   └── generate-settings.ts  # Generates ~/.claude/settings.json with hooks config
-├── atlas-mcp/                  # MCP server (path locking tools)
+├── talos-mcp/                  # MCP server (path locking tools)
 │   ├── index.ts               # Main MCP server
 │   ├── db.ts                  # Database initialization, schema, migrations
 │   └── locks.ts               # Path locking module
@@ -62,10 +62,10 @@ home/
 │   │   └── <skill-name> →     # Symlinks to system or user skills
 │   └── agents/                # Merged agent directory (per-agent symlinks)
 │       └── <agent-name>.md →  # Symlinks to system or user agent specs
-├── .atlas-mcp/                 # User MCP config (loaded by trigger sessions)
+├── .talos-mcp/                 # User MCP config (loaded by trigger sessions)
 │   └── user.json              # User MCP servers (Playwright, custom tools)
 ├── .index/                     # System state
-│   ├── atlas.db               # SQLite database (WAL mode)
+│   ├── talos.db               # SQLite database (WAL mode)
 │   ├── .trigger-<name>.flock  # Per-trigger flock file (concurrency control)
 │   └── signal/, email/        # Channel-specific databases
 ├── memory/                     # Long-term memory
@@ -74,8 +74,8 @@ home/
 │   │   └── YYYY-MM-DD.md
 │   └── projects/              # Project-specific notes
 ├── projects/                   # Working directories
-├── skills/                     # Atlas-created skills
-├── agents/                     # Atlas-created agent specs
+├── skills/                     # Talos-created skills
+├── agents/                     # Talos-created agent specs
 ├── triggers/                   # Custom trigger prompts
 │   └── <trigger-name>/
 │       └── prompt.md          # Prompt fallback if DB prompt is empty
@@ -98,11 +98,11 @@ home/
 | `app/triggers/trigger.sh` | Thin shell wrapper: delegates to trigger-runner binary |
 | `app/hooks/session-start.sh` | Loads memory context on session start |
 | `app/hooks/stop.sh` | Path lock cleanup and journal reminder |
-| `app/atlas-mcp/index.ts` | MCP server with path locking tools |
+| `app/talos-mcp/index.ts` | MCP server with path locking tools |
 | `app/web-ui/index.ts` | Hono.js dashboard server |
 | `app/defaults/agents/` | System agent specs (developer, reviewer, etc.) |
 | `app/defaults/skills/` | System skills (symlinked into `.claude/skills/`) |
-| `/home/agent/.index/atlas.db` | SQLite database (messages, triggers, sessions, path_locks) |
+| `/home/agent/.index/talos.db` | SQLite database (messages, triggers, sessions, path_locks) |
 | `/home/agent/memory/MEMORY.md` | Long-term memory storage |
 | `/home/agent/IDENTITY.md` | Agent identity/personality |
 | `/home/agent/config.yml` | Runtime configuration |

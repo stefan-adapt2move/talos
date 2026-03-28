@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/atlas-mcp",
+  "name": "@talos/talos-mcp",
   "version": "1.0.0",
   "type": "module",
   "main": "index.ts",

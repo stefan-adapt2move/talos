@@ -7,7 +7,7 @@ set -euo pipefail
 KUBECONFIG="$HOME/secrets/kubeconfig-dev.yaml"
 CHAT_ID="${STATUS_NOTIFY_CHAT_ID:-129584068}"
 NAMESPACE="production"
-TELEGRAM="/atlas/app/bin/telegram"
+TELEGRAM="/talos/app/bin/telegram"
 NOW=$(date +%H:%M)
 
 # --- Pod Health ---

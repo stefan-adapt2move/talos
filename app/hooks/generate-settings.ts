@@ -20,10 +20,10 @@ const hooksModel = expandModelName(config.models.hooks);
 
 // Write failure handling env file
 const failureEnvContent = [
-  `ATLAS_BACKOFF_INITIAL=${config.failure_handling.backoff_initial_seconds}`,
-  `ATLAS_BACKOFF_MAX=${config.failure_handling.backoff_max_seconds}`,
-  `ATLAS_NOTIFY_THRESHOLD_MINUTES=${config.failure_handling.notification_threshold_minutes}`,
-  `ATLAS_NOTIFY_COMMAND=${JSON.stringify(config.failure_handling.notification_command)}`,
+  `TALOS_BACKOFF_INITIAL=${config.failure_handling.backoff_initial_seconds}`,
+  `TALOS_BACKOFF_MAX=${config.failure_handling.backoff_max_seconds}`,
+  `TALOS_NOTIFY_THRESHOLD_MINUTES=${config.failure_handling.notification_threshold_minutes}`,
+  `TALOS_NOTIFY_COMMAND=${JSON.stringify(config.failure_handling.notification_command)}`,
   "",
 ].join("\n");
 writeFileSync(HOME + "/.failure-env", failureEnvContent);
@@ -89,10 +89,10 @@ const settings: Record<string, unknown> = {
       "mcp__*",
     ],
     deny: [
-      "Write(/atlas/app/**)",
-      "Edit(/atlas/app/**)",
-      "Write(/atlas/logs/**)",
-      "Edit(/atlas/logs/**)",
+      "Write(/talos/app/**)",
+      "Edit(/talos/app/**)",
+      "Write(/talos/logs/**)",
+      "Edit(/talos/logs/**)",
       "Write(/home/agent/.claude/settings.json)",
       "Edit(/home/agent/.claude/settings.json)",
     ],
@@ -101,14 +101,14 @@ const settings: Record<string, unknown> = {
     SessionStart: [
       {
         hooks: [
-          { type: "command", command: "/atlas/app/hooks/session-start.sh" },
+          { type: "command", command: "/talos/app/hooks/session-start.sh" },
         ],
       },
     ],
     Stop: [
       {
         hooks: [
-          { type: "command", command: "/atlas/app/hooks/stop.sh" },
+          { type: "command", command: "/talos/app/hooks/stop.sh" },
           {
             type: "prompt",
             prompt: stopCompletionPrompt,
@@ -121,7 +121,7 @@ const settings: Record<string, unknown> = {
       {
         matcher: "auto",
         hooks: [
-          { type: "command", command: "/atlas/app/hooks/pre-compact-auto.sh" },
+          { type: "command", command: "/talos/app/hooks/pre-compact-auto.sh" },
         ],
       },
       {
@@ -129,7 +129,7 @@ const settings: Record<string, unknown> = {
         hooks: [
           {
             type: "command",
-            command: "/atlas/app/hooks/pre-compact-manual.sh",
+            command: "/talos/app/hooks/pre-compact-manual.sh",
           },
         ],
       },
@@ -151,14 +151,14 @@ const settings: Record<string, unknown> = {
 mkdirSync(HOME + "/.claude", { recursive: true });
 writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
 
-// Generate trigger MCP config: base .mcp.json + atlas-mcp
-const MCP_BASE_PATH = "/atlas/app/.mcp.json";
+// Generate trigger MCP config: base .mcp.json + talos-mcp
+const MCP_BASE_PATH = "/talos/app/.mcp.json";
 const MCP_TRIGGER_PATH = HOME + "/.mcp-trigger.json";
 try {
   const baseMcp = JSON.parse(readFileSync(MCP_BASE_PATH, "utf-8"));
   baseMcp.mcpServers.work = {
     command: "bun",
-    args: ["run", "/atlas/app/atlas-mcp/index.ts"],
+    args: ["run", "/talos/app/talos-mcp/index.ts"],
   };
   writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
   console.log("Trigger MCP config generated: " + MCP_TRIGGER_PATH);

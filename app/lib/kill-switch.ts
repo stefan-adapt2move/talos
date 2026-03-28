@@ -1,8 +1,8 @@
 /**
- * Kill Switch — Pause, Resume, and Stop Atlas sessions.
+ * Kill Switch — Pause, Resume, and Stop Talos sessions.
  *
  * State is tracked via:
- *   1. File marker: $HOME/.atlas-paused (checked by trigger.sh and trigger-runner.ts)
+ *   1. File marker: $HOME/.talos-paused (checked by trigger.sh and trigger-runner.ts)
  *   2. Database: system_state table (for API queries and persistence)
  *
  * The file marker is the authoritative source — it persists across container restarts
@@ -13,7 +13,7 @@ import { existsSync, writeFileSync, unlinkSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Database } from "bun:sqlite";
 
-const PAUSED_MARKER = ".atlas-paused";
+const PAUSED_MARKER = ".talos-paused";
 
 // ---------------------------------------------------------------------------
 // State helpers
@@ -42,16 +42,16 @@ function getDbState(db: Database, key: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Check if Atlas is currently paused (file-based check, fast).
+ * Check if Talos is currently paused (file-based check, fast).
  */
 export function isAtlasPaused(home: string): boolean {
   return existsSync(markerPath(home));
 }
 
 /**
- * Pause Atlas: disable all trigger execution.
+ * Pause Talos: disable all trigger execution.
  *
- * - Creates .atlas-paused marker file
+ * - Creates .talos-paused marker file
  * - Records state in DB
  * - Stops supercronic (cron execution)
  *
@@ -74,9 +74,9 @@ export function pauseAtlas(db: Database, home: string): void {
 }
 
 /**
- * Resume Atlas: re-enable trigger execution.
+ * Resume Talos: re-enable trigger execution.
  *
- * - Removes .atlas-paused marker file
+ * - Removes .talos-paused marker file
  * - Updates DB state
  * - Restarts supercronic
  * - Re-syncs crontab
@@ -100,7 +100,7 @@ export function resumeAtlas(db: Database, home: string): void {
 
   // Re-sync crontab
   try {
-    Bun.spawnSync(["bun", "run", "/atlas/app/triggers/sync-crontab.ts"]);
+    Bun.spawnSync(["bun", "run", "/talos/app/triggers/sync-crontab.ts"]);
   } catch {}
 }
 
@@ -109,7 +109,7 @@ export function resumeAtlas(db: Database, home: string): void {
  *
  * - Terminates all running Claude sessions
  * - Marks active trigger_runs as completed
- * - Then pauses Atlas
+ * - Then pauses Talos
  */
 export function stopAllSessions(db: Database, home: string): { killed: number } {
   let killed = 0;

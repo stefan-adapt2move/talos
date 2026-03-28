@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Trigger Runner — replaces the old claude-atlas shell wrapper
+ * Trigger Runner — replaces the old claude-talos shell wrapper
  *
  * Usage: bun run trigger-runner.ts <trigger-name> [payload] [session-key]
  *
@@ -70,9 +70,9 @@ export type UsageReportingConfig = {
 // ---------------------------------------------------------------------------
 
 const HOME = process.env.HOME ?? "/home/agent";
-const APP_DIR = "/atlas/app";
+const APP_DIR = "/talos/app";
 const PROMPT_DIR = `${APP_DIR}/prompts`;
-const DB_PATH = `${HOME}/.index/atlas.db`;
+const DB_PATH = `${HOME}/.index/talos.db`;
 const CLAUDE_JSON = `${HOME}/.claude.json`;
 const WORKSPACE = HOME;
 
@@ -301,7 +301,7 @@ export function cleanupSocket(server: Server | null, socketPath: string): void {
 // ---------------------------------------------------------------------------
 
 function makeLogger(triggerName: string) {
-  const logPath = `/atlas/logs/trigger-${triggerName}.log`;
+  const logPath = `/talos/logs/trigger-${triggerName}.log`;
   return {
     log(msg: string) {
       const line = `[${new Date().toISOString()}] ${msg}`;
@@ -323,9 +323,9 @@ function makeLogger(triggerName: string) {
  * Build the system prompt by concatenating:
  * - ~/SOUL.md (wrapped in <soul> tags)
  * - ~/IDENTITY.md (wrapped in <identity> tags)
- * - /atlas/app/prompts/trigger-system-prompt.md
- * - /atlas/app/prompts/trigger-channel-{channel}.md
- * - All .md files in ATLAS_PROMPT_EXTENSIONS_DIR (if set)
+ * - /talos/app/prompts/trigger-system-prompt.md
+ * - /talos/app/prompts/trigger-channel-{channel}.md
+ * - All .md files in TALOS_PROMPT_EXTENSIONS_DIR (if set)
  */
 export function buildSystemPrompt(channel: string, options?: {
   appDir?: string;
@@ -360,9 +360,9 @@ export function buildSystemPrompt(channel: string, options?: {
   }
 
   // Prompt extensions — deployments can drop additional .md files into a
-  // directory referenced by ATLAS_PROMPT_EXTENSIONS_DIR to inject extra
+  // directory referenced by TALOS_PROMPT_EXTENSIONS_DIR to inject extra
   // system prompt sections.
-  const extensionsDir = process.env.ATLAS_PROMPT_EXTENSIONS_DIR;
+  const extensionsDir = process.env.TALOS_PROMPT_EXTENSIONS_DIR;
   if (extensionsDir) {
     try {
       const files = readdirSync(extensionsDir)
@@ -405,7 +405,7 @@ export function resolveModel(
 /**
  * Returns the MCP servers config object for the query() call.
  * Merges system servers (work) with user servers from:
- *   1. ~/.atlas-mcp/user.json (Atlas-managed user config)
+ *   1. ~/.talos-mcp/user.json (Talos-managed user config)
  *   2. ~/.mcp.json (standard Claude MCP config)
  * Only stdio-based servers are included (URL-based cause silent exit issues with --mcp-config).
  */
@@ -413,13 +413,13 @@ export function getMcpServers(): Record<string, Record<string, unknown>> {
   const servers: Record<string, Record<string, unknown>> = {
     work: {
       command: "bun",
-      args: ["run", "/atlas/app/atlas-mcp/index.ts"],
+      args: ["run", "/talos/app/talos-mcp/index.ts"],
     },
   };
 
   // Load user MCP servers from config files
   const userConfigPaths = [
-    `${HOME}/.atlas-mcp/user.json`,
+    `${HOME}/.talos-mcp/user.json`,
     `${HOME}/.mcp.json`,
   ];
 
@@ -790,7 +790,7 @@ function buildInjectMessage(
 
 /**
  * Open (or create) the database, ensuring required tables exist.
- * Does NOT run migrations — that's handled by atlas-mcp on startup.
+ * Does NOT run migrations — that's handled by talos-mcp on startup.
  * We use a simple open-only approach here.
  */
 function openDb(): Database {
@@ -838,8 +838,8 @@ export async function runDirect(
   const mcpServers = getMcpServers();
 
   // --- Set environment variables ---
-  process.env.ATLAS_TRIGGER = triggerName;
-  process.env.ATLAS_TRIGGER_CHANNEL = channel;
+  process.env.TALOS_TRIGGER = triggerName;
+  process.env.TALOS_TRIGGER_CHANNEL = channel;
   process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
   delete process.env.CLAUDECODE;
 
@@ -904,9 +904,9 @@ export async function runDirect(
 // ---------------------------------------------------------------------------
 
 export async function main(): Promise<void> {
-  // --- Pause guard: skip execution if Atlas is paused ---
-  if (existsSync(join(HOME, ".atlas-paused"))) {
-    console.log(`[${new Date().toISOString()}] Atlas is paused, skipping trigger execution`);
+  // --- Pause guard: skip execution if Talos is paused ---
+  if (existsSync(join(HOME, ".talos-paused"))) {
+    console.log(`[${new Date().toISOString()}] Talos is paused, skipping trigger execution`);
     process.exit(0);
   }
 
@@ -921,7 +921,7 @@ export async function main(): Promise<void> {
     }
 
     let channel = "internal";
-    let modelKey = process.env.ATLAS_CRON === "1" ? "cron" : "trigger";
+    let modelKey = process.env.TALOS_CRON === "1" ? "cron" : "trigger";
     let resumeId: string | undefined;
 
     for (let i = 2; i < args.length; i++) {
@@ -1202,16 +1202,16 @@ export async function main(): Promise<void> {
   const systemPrompt = buildSystemPrompt(channel);
 
   // --- Resolve model ---
-  const modelKey = process.env.ATLAS_CRON === "1" ? "cron" : "trigger";
+  const modelKey = process.env.TALOS_CRON === "1" ? "cron" : "trigger";
   const model = resolveModel(`${HOME}/config.yml`, modelKey);
 
   // --- MCP servers ---
   const mcpServers = getMcpServers();
 
   // --- Set environment variables ---
-  process.env.ATLAS_TRIGGER = triggerName;
-  process.env.ATLAS_TRIGGER_CHANNEL = channel;
-  process.env.ATLAS_TRIGGER_SESSION_KEY = sessionKey;
+  process.env.TALOS_TRIGGER = triggerName;
+  process.env.TALOS_TRIGGER_CHANNEL = channel;
+  process.env.TALOS_TRIGGER_SESSION_KEY = sessionKey;
   process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
   delete process.env.CLAUDECODE; // avoid nested-session detection
 

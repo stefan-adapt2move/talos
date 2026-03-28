@@ -7,16 +7,16 @@
 # any messages that were skipped while the lock was held.
 #
 # Usage: Run via cron every 5 minutes:
-#   */5 * * * * /atlas/app/scripts/watchdog-triggers.sh
+#   */5 * * * * /talos/app/scripts/watchdog-triggers.sh
 #
 # Configuration (env vars):
 #   MAX_AGE_MIN   - Minutes before a trigger is considered stuck (default: 30)
-#   WATCHDOG_LOG  - Log file path (default: /atlas/logs/watchdog-triggers.log)
+#   WATCHDOG_LOG  - Log file path (default: /talos/logs/watchdog-triggers.log)
 
 MAX_AGE_MIN=${MAX_AGE_MIN:-30}
-LOG="${WATCHDOG_LOG:-/atlas/logs/watchdog-triggers.log}"
+LOG="${WATCHDOG_LOG:-/talos/logs/watchdog-triggers.log}"
 MAX_AGE_SEC=$((MAX_AGE_MIN * 60))
-TRIGGER_SH="/atlas/app/triggers/trigger.sh"
+TRIGGER_SH="/talos/app/triggers/trigger.sh"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 

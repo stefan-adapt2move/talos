@@ -39,11 +39,11 @@ import pino from "pino";
 // Constants
 // ---------------------------------------------------------------------------
 
-const HOME = process.env.HOME ?? "/home/atlas";
+const HOME = process.env.HOME ?? "/home/talos";
 const AUTH_DIR = join(HOME, ".local/share/whatsapp/auth");
 const ATTACHMENTS_DIR = join(HOME, ".local/share/whatsapp/attachments");
 const SOCKET_PATH = "/tmp/whatsapp.sock";
-const LOG_FILE = "/atlas/logs/whatsapp-daemon.log";
+const LOG_FILE = "/talos/logs/whatsapp-daemon.log";
 const QR_IMAGE_PATH = join(HOME, ".local/share/whatsapp/qr-code.png");
 const QR_STATUS_PATH = join(HOME, ".local/share/whatsapp/status.json");
 
@@ -448,7 +448,7 @@ async function connectWhatsApp(): Promise<void> {
     if (qr) {
       log("QR code generated — scan with WhatsApp mobile app (Settings → Linked Devices → Link a Device)");
       // QR is printed to terminal by printQRInTerminal: true
-      // Also save as PNG image so the Atlas agent can send it to the user
+      // Also save as PNG image so the Talos agent can send it to the user
       try {
         await QRCode.toFile(QR_IMAGE_PATH, qr, { width: 512, margin: 2 });
         writeFileSync(QR_STATUS_PATH, JSON.stringify({

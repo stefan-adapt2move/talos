@@ -2,15 +2,15 @@
 set -euo pipefail
 
 WORKSPACE="$HOME"
-LOG="/atlas/logs/init.log"
+LOG="/talos/logs/init.log"
 exec > >(tee -a "$LOG") 2>&1
 
-# Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Atlas"
+# Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Talos"
 if [ -z "${AGENT_NAME:-}" ]; then
   if [ -f "$WORKSPACE/config.yml" ]; then
     AGENT_NAME=$(grep -A1 '^agent:' "$WORKSPACE/config.yml" 2>/dev/null | grep 'name:' | sed 's/.*name: *"\?\([^"#]*\)"\?.*/\1/' | xargs)
   fi
-  AGENT_NAME="${AGENT_NAME:-Atlas}"
+  AGENT_NAME="${AGENT_NAME:-Talos}"
 fi
 export AGENT_NAME
 
@@ -24,7 +24,7 @@ elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   echo "  API key configured"
 else
   echo "  ⚠ No authentication configured!"
-  echo "  Run: docker run -it --rm -v \$(pwd)/volume:/home/agent atlas claude login"
+  echo "  Run: docker run -it --rm -v \$(pwd)/volume:/home/agent talos claude login"
   echo "  Or set ANTHROPIC_API_KEY in docker-compose.yml"
   # Don't exit - web-ui should still start for setup instructions
 fi
@@ -89,7 +89,7 @@ fi
 
 # Create default MEMORY.md if it doesn't exist yet
 if [ ! -f "$WORKSPACE/memory/MEMORY.md" ]; then
-  DISPLAY_NAME="${AGENT_NAME:-Atlas}"
+  DISPLAY_NAME="${AGENT_NAME:-Talos}"
   cat > "$WORKSPACE/memory/MEMORY.md" << MEMEOF
 # ${DISPLAY_NAME} Memory
 
@@ -112,10 +112,10 @@ MEMEOF
 fi
 
 # ── Phase 2b: ENV Secret Bridge ──
-# Any env var matching ATLAS_SECRET_* gets written to $HOME/secrets/<lowercase_suffix>
+# Any env var matching TALOS_SECRET_* gets written to $HOME/secrets/<lowercase_suffix>
 echo "[$(date)] Phase 2b: ENV secret bridge"
-{ env | grep '^ATLAS_SECRET_' || true; } | while IFS='=' read -r key value; do
-  secret_name=$(echo "$key" | sed 's/^ATLAS_SECRET_//' | tr '[:upper:]' '[:lower:]')
+{ env | grep '^TALOS_SECRET_' || true; } | while IFS='=' read -r key value; do
+  secret_name=$(echo "$key" | sed 's/^TALOS_SECRET_//' | tr '[:upper:]' '[:lower:]')
   secret_file="$WORKSPACE/secrets/$secret_name"
   echo "$value" > "$secret_file"
   chmod 600 "$secret_file"
@@ -123,8 +123,8 @@ echo "[$(date)] Phase 2b: ENV secret bridge"
 done
 
 # ── Phase 2c: Injection Directory ──
-# Process $HOME/.atlas-inject/ for first-boot data injection (Docker mount pattern)
-INJECT_DIR="$WORKSPACE/.atlas-inject"
+# Process $HOME/.talos-inject/ for first-boot data injection (Docker mount pattern)
+INJECT_DIR="$WORKSPACE/.talos-inject"
 if [ -d "$INJECT_DIR" ] && [ ! -f "$INJECT_DIR/.done" ]; then
   echo "[$(date)] Phase 2c: Processing injection directory"
 
@@ -148,7 +148,7 @@ if [ -d "$INJECT_DIR" ] && [ ! -f "$INJECT_DIR/.done" ]; then
 
   # Inject runtime config overrides
   if [ -f "$INJECT_DIR/config-overrides.json" ]; then
-    cp "$INJECT_DIR/config-overrides.json" "$WORKSPACE/.atlas-runtime-config.json"
+    cp "$INJECT_DIR/config-overrides.json" "$WORKSPACE/.talos-runtime-config.json"
     echo "  Injected runtime config overrides"
   fi
 
@@ -158,9 +158,9 @@ if [ -d "$INJECT_DIR" ] && [ ! -f "$INJECT_DIR/.done" ]; then
 fi
 
 # ── Phase 2d: Projects Directory Symlink ──
-# Allow ATLAS_PROJECTS_DIR to customize where projects/ points
-if [ -n "${ATLAS_PROJECTS_DIR:-}" ] && [ "$ATLAS_PROJECTS_DIR" != "$WORKSPACE/projects" ]; then
-  if [ -d "$ATLAS_PROJECTS_DIR" ]; then
+# Allow TALOS_PROJECTS_DIR to customize where projects/ points
+if [ -n "${TALOS_PROJECTS_DIR:-}" ] && [ "$TALOS_PROJECTS_DIR" != "$WORKSPACE/projects" ]; then
+  if [ -d "$TALOS_PROJECTS_DIR" ]; then
     # Remove default projects dir if it's empty, then symlink
     if [ -d "$WORKSPACE/projects" ] && [ ! -L "$WORKSPACE/projects" ]; then
       if [ -z "$(ls -A "$WORKSPACE/projects" 2>/dev/null)" ]; then
@@ -168,25 +168,25 @@ if [ -n "${ATLAS_PROJECTS_DIR:-}" ] && [ "$ATLAS_PROJECTS_DIR" != "$WORKSPACE/pr
       fi
     fi
     if [ ! -e "$WORKSPACE/projects" ]; then
-      ln -sfn "$ATLAS_PROJECTS_DIR" "$WORKSPACE/projects"
-      echo "  Linked projects/ → $ATLAS_PROJECTS_DIR"
+      ln -sfn "$TALOS_PROJECTS_DIR" "$WORKSPACE/projects"
+      echo "  Linked projects/ → $TALOS_PROJECTS_DIR"
     fi
   else
-    echo "  ⚠ ATLAS_PROJECTS_DIR=$ATLAS_PROJECTS_DIR does not exist"
+    echo "  ⚠ TALOS_PROJECTS_DIR=$TALOS_PROJECTS_DIR does not exist"
   fi
 fi
 
 # ── Phase 3: Default Config ──
 echo "[$(date)] Phase 3: Default config"
 if [ ! -f "$WORKSPACE/config.yml" ]; then
-  cp /atlas/app/defaults/config.yml "$WORKSPACE/config.yml"
+  cp /talos/app/defaults/config.yml "$WORKSPACE/config.yml"
   echo "  Created default config.yml"
 fi
 
 # ── Phase 4: Default Crontab ──
 echo "[$(date)] Phase 4: Crontab"
 if [ ! -f "$WORKSPACE/crontab" ]; then
-  cp /atlas/app/defaults/crontab "$WORKSPACE/crontab"
+  cp /talos/app/defaults/crontab "$WORKSPACE/crontab"
   echo "  Created default crontab"
 fi
 
@@ -198,14 +198,14 @@ if [ ! -f "$WORKSPACE/IDENTITY.md" ]; then
     FIRST_RUN=true
     echo "  First run detected - creating placeholder IDENTITY.md"
 
-    cp /atlas/app/defaults/IDENTITY.md "$WORKSPACE/IDENTITY.md"
+    cp /talos/app/defaults/IDENTITY.md "$WORKSPACE/IDENTITY.md"
 
     echo "  Created placeholder IDENTITY.md"
 fi
 
 # Soul (separate from identity — internal behavioral philosophy)
 if [ ! -f "$WORKSPACE/SOUL.md" ]; then
-  cp /atlas/app/defaults/SOUL.md "$WORKSPACE/SOUL.md"
+  cp /talos/app/defaults/SOUL.md "$WORKSPACE/SOUL.md"
   echo "  Created default SOUL.md"
 fi
 
@@ -232,18 +232,18 @@ for f in "$WORKSPACE/memory/"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
   echo "  Migrated journal: $(basename $f)"
 done
 
-# Migrate stale MCP system.json (inbox-mcp → atlas-mcp rename)
-MCP_SYS="$WORKSPACE/.atlas-mcp/system.json"
+# Migrate stale MCP system.json (inbox-mcp → talos-mcp rename)
+MCP_SYS="$WORKSPACE/.talos-mcp/system.json"
 if [ -f "$MCP_SYS" ] && grep -q "inbox-mcp" "$MCP_SYS" 2>/dev/null; then
   rm -f "$MCP_SYS"
   echo "  Removed stale MCP system.json (inbox-mcp reference)"
 fi
 
-# Self-heal: scan workspace for stale /home/atlas references
+# Self-heal: scan workspace for stale /home/talos references
 # Only runs if /home/agent is the actual home (i.e. migration has happened)
 SELF_HEAL_MARKER="$WORKSPACE/.index/.self-heal-done"
 if [ "$HOME" = "/home/agent" ] && [ ! -f "$SELF_HEAL_MARKER" ]; then
-  STALE_FILES=$(grep -rql "/home/atlas" \
+  STALE_FILES=$(grep -rql "/home/talos" \
     "$WORKSPACE/config.yml" \
     "$WORKSPACE/.claude/" \
     "$WORKSPACE/scripts/" \
@@ -252,22 +252,22 @@ if [ "$HOME" = "/home/agent" ] && [ ! -f "$SELF_HEAL_MARKER" ]; then
     "$WORKSPACE/user-extensions.sh" \
     2>/dev/null || true)
   if [ -n "$STALE_FILES" ]; then
-    echo "  [WARN] Found /home/atlas references in workspace files:"
+    echo "  [WARN] Found /home/talos references in workspace files:"
     echo "$STALE_FILES" | sed 's/^/    /'
     echo "  Will start self-heal session after services are up"
     export SELF_HEAL_NEEDED=true
   else
-    echo "  No stale /home/atlas references found"
+    echo "  No stale /home/talos references found"
     touch "$SELF_HEAL_MARKER"
   fi
 fi
 
-# Migrate Claude Code project directories: /home/atlas → /home/agent
+# Migrate Claude Code project directories: /home/talos → /home/agent
 # Claude Code stores sessions under .claude/projects/<cwd-slugified>/
-# After the home dir rename, old sessions live under -home-atlas but Claude
+# After the home dir rename, old sessions live under -home-talos but Claude
 # now looks under -home-agent. Merge old → new so session resume works.
 CLAUDE_PROJECTS="$HOME/.claude/projects"
-OLD_PROJECT_DIR="$CLAUDE_PROJECTS/-home-atlas"
+OLD_PROJECT_DIR="$CLAUDE_PROJECTS/-home-talos"
 NEW_PROJECT_DIR="$CLAUDE_PROJECTS/-home-agent"
 if [ -d "$OLD_PROJECT_DIR" ] && [ "$HOME" = "/home/agent" ]; then
   mkdir -p "$NEW_PROJECT_DIR"
@@ -280,21 +280,38 @@ if [ -d "$OLD_PROJECT_DIR" ] && [ "$HOME" = "/home/agent" ]; then
     fi
   done
   # Remove old dir if empty
-  rmdir "$OLD_PROJECT_DIR" 2>/dev/null && echo "  Migrated Claude projects: -home-atlas → -home-agent" || \
-    echo "  Partially migrated Claude projects (some files remain in -home-atlas)"
+  rmdir "$OLD_PROJECT_DIR" 2>/dev/null && echo "  Migrated Claude projects: -home-talos → -home-agent" || \
+    echo "  Partially migrated Claude projects (some files remain in -home-talos)"
+fi
+
+# Migrate atlas.db → talos.db (one-time rebrand migration)
+if [ -f "$WORKSPACE/.index/atlas.db" ] && [ ! -f "$WORKSPACE/.index/talos.db" ]; then
+  echo "  Migrating atlas.db → talos.db"
+  mv "$WORKSPACE/.index/atlas.db" "$WORKSPACE/.index/talos.db"
+  [ -f "$WORKSPACE/.index/atlas.db-wal" ] && mv "$WORKSPACE/.index/atlas.db-wal" "$WORKSPACE/.index/talos.db-wal"
+  [ -f "$WORKSPACE/.index/atlas.db-shm" ] && mv "$WORKSPACE/.index/atlas.db-shm" "$WORKSPACE/.index/talos.db-shm"
+  echo "  DB migration complete"
+fi
+
+# Migrate .atlas-mcp → .talos-mcp config dir (one-time rebrand migration)
+if [ -d "$WORKSPACE/.atlas-mcp" ] && [ ! -d "$WORKSPACE/.talos-mcp" ]; then
+  mv "$WORKSPACE/.atlas-mcp" "$WORKSPACE/.talos-mcp"
+  echo "  Migrated .atlas-mcp → .talos-mcp"
+fi
+
 fi
 
 
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
-DB="$WORKSPACE/.index/atlas.db"
+DB="$WORKSPACE/.index/talos.db"
 FIRST_DB=false
 if [ ! -f "$DB" ]; then
   FIRST_DB=true
 fi
 
 # Always run canonical schema init + migrations (idempotent)
-bun -e "import { initDb } from '/atlas/app/atlas-mcp/db'; initDb();" || {
+bun -e "import { initDb } from '/talos/app/talos-mcp/db'; initDb();" || {
   echo "  ⚠ Database init via bun failed (non-fatal)"
 }
 
@@ -314,7 +331,7 @@ sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel,
 # Create/update memory-cleanup trigger prompt
 mkdir -p "$WORKSPACE/triggers/memory-cleanup"
 if [ ! -f "$WORKSPACE/triggers/memory-cleanup/prompt.md" ]; then
-  cp /atlas/app/defaults/triggers/memory-cleanup/prompt.md "$WORKSPACE/triggers/memory-cleanup/prompt.md"
+  cp /talos/app/defaults/triggers/memory-cleanup/prompt.md "$WORKSPACE/triggers/memory-cleanup/prompt.md"
   echo "  Created memory-cleanup trigger prompt"
 fi
 
@@ -363,13 +380,13 @@ fi
 # ── Phase 8: Claude Code Settings + Discovery Links ──
 # Regenerated on every start to pick up model changes from config.yml
 echo "[$(date)] Phase 8: Claude Code settings + discovery links"
-bun run /atlas/app/hooks/generate-settings.ts || echo "  ⚠ Settings generation failed (non-fatal)"
+bun run /talos/app/hooks/generate-settings.ts || echo "  ⚠ Settings generation failed (non-fatal)"
 
 # Skills: merged real directory with per-skill symlinks
 # System skills (from image) + agent-created skills (from home/skills/)
 rm -rf "$HOME/.claude/skills"
 mkdir -p "$HOME/.claude/skills"
-for d in /atlas/app/defaults/skills/*/; do
+for d in /talos/app/defaults/skills/*/; do
   [ -d "$d" ] && ln -sfn "$d" "$HOME/.claude/skills/$(basename $d)"
 done
 for d in "$HOME/skills/"*/; do
@@ -381,7 +398,7 @@ echo "  Skills discovery dir rebuilt: $HOME/.claude/skills/"
 # System agent specs (from image) are copied as defaults, user agents override
 rm -rf "$HOME/.claude/agents"
 mkdir -p "$HOME/.claude/agents"
-for f in /atlas/app/defaults/agents/*.md; do
+for f in /talos/app/defaults/agents/*.md; do
   [ -f "$f" ] && ln -sfn "$f" "$HOME/.claude/agents/$(basename $f)"
 done
 for f in "$HOME/agents/"*.md; do
@@ -391,17 +408,17 @@ echo "  Agents discovery dir rebuilt: $HOME/.claude/agents/"
 
 # ── Phase 9: Sync Crontab from Triggers ──
 echo "[$(date)] Phase 9: Crontab sync"
-bun run /atlas/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (non-fatal)"
+bun run /talos/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (non-fatal)"
 
 # ── Phase 10: Start Services ──
 echo "[$(date)] Phase 10: Starting services"
-supervisorctl start atlas-mcp || true
+supervisorctl start talos-mcp || true
 sleep 1
 supervisorctl start web-ui || true
 
 # Check pause state before starting cron
-if [ -f "$WORKSPACE/.atlas-paused" ]; then
-  echo "  ⚠ Atlas is PAUSED — skipping supercronic. Use API POST /api/v1/control/resume to unpause."
+if [ -f "$WORKSPACE/.talos-paused" ]; then
+  echo "  ⚠ Talos is PAUSED — skipping supercronic. Use API POST /api/v1/control/resume to unpause."
 else
   supervisorctl start supercronic || true
 fi
@@ -432,8 +449,8 @@ for row in rows:
         recovery = 'Session resumed after container restart. Continue where you left off.'
         print(f'  Resuming persistent session: {name} (key={key}, session={sid})')
         subprocess.Popen(
-            ['/atlas/app/triggers/trigger.sh', name, recovery, key],
-            stdout=open(f'/atlas/logs/trigger-{name}.log', 'a'),
+            ['/talos/app/triggers/trigger.sh', name, recovery, key],
+            stdout=open(f'/talos/logs/trigger-{name}.log', 'a'),
             stderr=subprocess.STDOUT,
             start_new_session=True
         )
@@ -441,8 +458,8 @@ for row in rows:
         # Re-fire with stored payload — starts fresh
         print(f'  Re-firing ephemeral trigger: {name} (key={key})')
         subprocess.Popen(
-            ['/atlas/app/triggers/trigger.sh', name, payload, key],
-            stdout=open(f'/atlas/logs/trigger-{name}.log', 'a'),
+            ['/talos/app/triggers/trigger.sh', name, payload, key],
+            stdout=open(f'/talos/logs/trigger-{name}.log', 'a'),
             stderr=subprocess.STDOUT,
             start_new_session=True
         )
@@ -453,8 +470,8 @@ fi
 
 # ── Phase 12: Self-heal stale path references ──
 if [ "${SELF_HEAL_NEEDED:-}" = "true" ]; then
-  echo "[$(date)] Phase 12: Starting self-heal session for /home/atlas → /home/agent migration"
-  SELF_HEAL_PROMPT="Scan the workspace at $HOME for files that contain hardcoded /home/atlas paths and replace them with /home/agent.
+  echo "[$(date)] Phase 12: Starting self-heal session for /home/talos → /home/agent migration"
+  SELF_HEAL_PROMPT="Scan the workspace at $HOME for files that contain hardcoded /home/talos paths and replace them with /home/agent.
 
 Rules:
 - Only touch: config files (.yml, .yaml, .json), shell scripts (.sh), markdown (.md), crontab, .claude/ project configs
@@ -465,7 +482,7 @@ Rules:
 
 This is an automated migration task. Be thorough but conservative."
 
-  /atlas/app/triggers/trigger.sh "self-heal" "$SELF_HEAL_PROMPT" "self-heal" &
+  /talos/app/triggers/trigger.sh "self-heal" "$SELF_HEAL_PROMPT" "self-heal" &
   echo "  Self-heal session started in background"
 fi
 

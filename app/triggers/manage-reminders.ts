@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Reminder management CLI
- * Usage: bun /atlas/app/triggers/manage-reminders.ts <command> [flags]
+ * Usage: bun /talos/app/triggers/manage-reminders.ts <command> [flags]
  *
  * Commands:
  *   add     --title=<text> --at=<time> --prompt=<text> [--channel=internal]
@@ -117,7 +117,7 @@ const argv = Bun.argv.slice(2);
 const command = argv[0];
 
 if (!command || command === "--help" || command === "-h") {
-  console.log(`Usage: bun /atlas/app/triggers/manage-reminders.ts <command> [flags]
+  console.log(`Usage: bun /talos/app/triggers/manage-reminders.ts <command> [flags]
 
 Commands:
   add     --title=<text> --at=<time> --prompt=<text> [--channel=internal]
@@ -240,12 +240,12 @@ switch (command) {
       // Spawn trigger-runner as a detached process (fire-and-forget, truly independent)
       // Using --direct mode so no DB trigger lookup is needed.
       const proc = Bun.spawn(
-        ["/atlas/app/triggers/trigger-runner", "--direct", promptText, "--channel", channel],
+        ["/talos/app/triggers/trigger-runner", "--direct", promptText, "--channel", channel],
         {
           env: {
             ...process.env,
-            ATLAS_REMINDER_ID: String(reminder.id),
-            ATLAS_REMINDER_TITLE: reminder.title,
+            TALOS_REMINDER_ID: String(reminder.id),
+            TALOS_REMINDER_TITLE: reminder.title,
           },
           stdin: "ignore",
           stdout: "inherit",

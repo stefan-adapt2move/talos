@@ -1,5 +1,5 @@
 {
-  "name": "atlas-whatsapp-daemon",
+  "name": "talos-whatsapp-daemon",
   "private": true,
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",

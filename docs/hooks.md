@@ -37,7 +37,7 @@ Releases any path locks held by the current PID (crash-safe cleanup):
 
 ### Journal Reminder (Trigger Sessions Only)
 
-For trigger sessions (`ATLAS_TRIGGER` is set), the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
+For trigger sessions (`TALOS_TRIGGER` is set), the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
 
 ## Stop Completion Check (prompt-type hook)
 

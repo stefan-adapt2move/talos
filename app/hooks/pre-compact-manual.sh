@@ -5,7 +5,7 @@
 set -euo pipefail
 
 TODAY=$(date +%Y-%m-%d)
-PROMPT_DIR="/atlas/app/prompts"
+PROMPT_DIR="/talos/app/prompts"
 
 # Helper: resolve channel-specific template with fallback
 resolve_template() {
@@ -19,9 +19,9 @@ resolve_template() {
 }
 
 # --- Trigger session: channel-specific compaction ---
-if [ -n "${ATLAS_TRIGGER:-}" ]; then
-  CHANNEL="${ATLAS_TRIGGER_CHANNEL:-internal}"
-  TRIGGER_NAME="$ATLAS_TRIGGER"
+if [ -n "${TALOS_TRIGGER:-}" ]; then
+  CHANNEL="${TALOS_TRIGGER_CHANNEL:-internal}"
+  TRIGGER_NAME="$TALOS_TRIGGER"
 
   # Phase 1: Pre-compaction — save state to memory (be thorough)
   PRE_COMPACT=$(resolve_template "pre-compact")

@@ -1,6 +1,6 @@
 # External Configuration Interfaces
 
-Atlas can be fully configured from outside via three complementary mechanisms:
+Talos can be fully configured from outside via three complementary mechanisms:
 
 1. **Environment Variables** — Set at container startup (docker-compose, Kubernetes, etc.)
 2. **REST API** — Runtime configuration via HTTP endpoints
@@ -14,73 +14,73 @@ Values are resolved with the following priority (highest wins):
 ENV variables  >  Runtime config  >  config.yml  >  Built-in defaults
 ```
 
-- **ENV variables**: `ATLAS_*` prefixed, set in docker-compose or orchestrator
-- **Runtime config**: `$HOME/.atlas-runtime-config.json`, set via API
+- **ENV variables**: `TALOS_*` prefixed, set in docker-compose or orchestrator
+- **Runtime config**: `$HOME/.talos-runtime-config.json`, set via API
 - **config.yml**: `$HOME/config.yml`, edited manually or via web UI
-- **Defaults**: Built into the Atlas image
+- **Defaults**: Built into the Talos image
 
 ---
 
 ## Environment Variables
 
-All config.yml values can be overridden via `ATLAS_*` environment variables.
+All config.yml values can be overridden via `TALOS_*` environment variables.
 
 ### Core
 
 | Variable | config.yml path | Default | Description |
 |---|---|---|---|
-| `ATLAS_AGENT_NAME` | `agent.name` | `"Atlas"` | Agent display name. Alias: `AGENT_NAME` |
-| `ATLAS_AGENT_EMAIL` | `agent.email` | `""` | Agent email address |
-| `ATLAS_API_KEY` | — | `""` | API key to protect `/api/v1/*` endpoints |
+| `TALOS_AGENT_NAME` | `agent.name` | `"Talos"` | Agent display name. Alias: `AGENT_NAME` |
+| `TALOS_AGENT_EMAIL` | `agent.email` | `""` | Agent email address |
+| `TALOS_API_KEY` | — | `""` | API key to protect `/api/v1/*` endpoints |
 | `ANTHROPIC_API_KEY` | — | — | Claude API key (alternative to OAuth) |
 
 ### Models
 
 | Variable | config.yml path | Default |
 |---|---|---|
-| `ATLAS_MODEL_TRIGGER` | `models.trigger` | `"opus"` |
-| `ATLAS_MODEL_CRON` | `models.cron` | `"sonnet"` |
-| `ATLAS_MODEL_SUBAGENT_REVIEW` | `models.subagent_review` | `"sonnet"` |
-| `ATLAS_MODEL_HOOKS` | `models.hooks` | `"haiku"` |
+| `TALOS_MODEL_TRIGGER` | `models.trigger` | `"opus"` |
+| `TALOS_MODEL_CRON` | `models.cron` | `"sonnet"` |
+| `TALOS_MODEL_SUBAGENT_REVIEW` | `models.subagent_review` | `"sonnet"` |
+| `TALOS_MODEL_HOOKS` | `models.hooks` | `"haiku"` |
 
 ### Signal Integration
 
 | Variable | config.yml path | Default |
 |---|---|---|
-| `ATLAS_SIGNAL_NUMBER` | `signal.number` | `""` |
-| `ATLAS_SIGNAL_HISTORY_TURNS` | `signal.history_turns` | `20` |
-| `ATLAS_SIGNAL_WHITELIST` | `signal.whitelist` | `[]` (comma-separated) |
+| `TALOS_SIGNAL_NUMBER` | `signal.number` | `""` |
+| `TALOS_SIGNAL_HISTORY_TURNS` | `signal.history_turns` | `20` |
+| `TALOS_SIGNAL_WHITELIST` | `signal.whitelist` | `[]` (comma-separated) |
 
 ### Email Integration
 
 | Variable | config.yml path | Default |
 |---|---|---|
-| `ATLAS_EMAIL_IMAP_HOST` | `email.imap_host` | `""` |
-| `ATLAS_EMAIL_IMAP_PORT` | `email.imap_port` | `993` |
-| `ATLAS_EMAIL_SMTP_HOST` | `email.smtp_host` | `""` |
-| `ATLAS_EMAIL_SMTP_PORT` | `email.smtp_port` | `587` |
-| `ATLAS_EMAIL_USERNAME` | `email.username` | `""` |
-| `ATLAS_EMAIL_PASSWORD_FILE` | `email.password_file` | `"$HOME/secrets/email-password"` |
-| `ATLAS_EMAIL_WHITELIST` | `email.whitelist` | `[]` (comma-separated) |
-| `ATLAS_EMAIL_MARK_READ` | `email.mark_read` | `true` |
+| `TALOS_EMAIL_IMAP_HOST` | `email.imap_host` | `""` |
+| `TALOS_EMAIL_IMAP_PORT` | `email.imap_port` | `993` |
+| `TALOS_EMAIL_SMTP_HOST` | `email.smtp_host` | `""` |
+| `TALOS_EMAIL_SMTP_PORT` | `email.smtp_port` | `587` |
+| `TALOS_EMAIL_USERNAME` | `email.username` | `""` |
+| `TALOS_EMAIL_PASSWORD_FILE` | `email.password_file` | `"$HOME/secrets/email-password"` |
+| `TALOS_EMAIL_WHITELIST` | `email.whitelist` | `[]` (comma-separated) |
+| `TALOS_EMAIL_MARK_READ` | `email.mark_read` | `true` |
 
 ### Other
 
 | Variable | config.yml path | Default |
 |---|---|---|
-| `ATLAS_STT_ENABLED` | `stt.enabled` | `true` |
-| `ATLAS_STT_URL` | `stt.url` | `"http://stt:5092/..."` |
-| `ATLAS_WEBHOOK_RELAY_URL` | `webhook.relay_url` | `"https://webhooks.unclutter.pro"` |
-| `ATLAS_PROJECTS_DIR` | `workspace.projects_dir` | `"$HOME/projects"` |
+| `TALOS_STT_ENABLED` | `stt.enabled` | `true` |
+| `TALOS_STT_URL` | `stt.url` | `"http://stt:5092/..."` |
+| `TALOS_WEBHOOK_RELAY_URL` | `webhook.relay_url` | `"https://webhooks.unclutter.pro"` |
+| `TALOS_PROJECTS_DIR` | `workspace.projects_dir` | `"$HOME/projects"` |
 
 ### Secrets via ENV
 
-Any environment variable matching `ATLAS_SECRET_*` is automatically written to `$HOME/secrets/<name>` (lowercase) with `chmod 600` during container startup.
+Any environment variable matching `TALOS_SECRET_*` is automatically written to `$HOME/secrets/<name>` (lowercase) with `chmod 600` during container startup.
 
 ```yaml
 environment:
-  - ATLAS_SECRET_GITHUB_TOKEN=ghp_abc123
-  - ATLAS_SECRET_STRIPE_KEY=sk_live_...
+  - TALOS_SECRET_GITHUB_TOKEN=ghp_abc123
+  - TALOS_SECRET_STRIPE_KEY=sk_live_...
 ```
 
 Creates:
@@ -91,7 +91,7 @@ Creates:
 
 ## REST API
 
-All API endpoints are under `/api/v1/`. If `ATLAS_API_KEY` is set, requests must include:
+All API endpoints are under `/api/v1/`. If `TALOS_API_KEY` is set, requests must include:
 
 ```
 Authorization: Bearer <api-key>
@@ -110,7 +110,7 @@ curl -s http://localhost:8080/api/v1/config
 # Get specific section
 curl -s http://localhost:8080/api/v1/config/models
 
-# Update config (partial merge, persisted to .atlas-runtime-config.json)
+# Update config (partial merge, persisted to .talos-runtime-config.json)
 curl -s -X PATCH http://localhost:8080/api/v1/config \
   -H "Content-Type: application/json" \
   -d '{"models": {"trigger": "sonnet"}, "agent": {"name": "MyAgent"}}'
@@ -172,10 +172,10 @@ curl -s -X DELETE http://localhost:8080/api/v1/memory/projects/old-notes.md
 curl -s http://localhost:8080/api/v1/control/status
 # → {"ok":true,"paused":false,"paused_at":null,"active_sessions":[...]}
 
-# Pause Atlas (stops cron, blocks new triggers)
+# Pause Talos (stops cron, blocks new triggers)
 curl -s -X POST http://localhost:8080/api/v1/control/pause
 
-# Resume Atlas
+# Resume Talos
 curl -s -X POST http://localhost:8080/api/v1/control/resume
 
 # Hard stop: kill all active sessions and pause
@@ -204,17 +204,17 @@ curl -s -X POST http://localhost:8080/api/v1/triggers/daily-cleanup/run
 
 ---
 
-## File Injection (`.atlas-inject/`)
+## File Injection (`.talos-inject/`)
 
-For Docker-based deployments, you can pre-populate the agent's workspace by mounting an injection directory. Files in `.atlas-inject/` are processed once on first boot.
+For Docker-based deployments, you can pre-populate the agent's workspace by mounting an injection directory. Files in `.talos-inject/` are processed once on first boot.
 
 ### Directory Structure
 
 ```
-.atlas-inject/
+.talos-inject/
 ├── identity.md              # → copied to IDENTITY.md
 ├── soul.md                  # → copied to SOUL.md
-├── config-overrides.json    # → copied to .atlas-runtime-config.json
+├── config-overrides.json    # → copied to .talos-runtime-config.json
 └── memory/                  # → merged into memory/
     ├── MEMORY.md
     └── projects/
@@ -225,26 +225,26 @@ For Docker-based deployments, you can pre-populate the agent's workspace by moun
 
 ```yaml
 services:
-  atlas:
+  talos:
     build: .
     volumes:
       - ./volume:/home/agent
-      - ./inject:/home/agent/.atlas-inject:ro  # One-time injection
+      - ./inject:/home/agent/.talos-inject:ro  # One-time injection
     environment:
-      - ATLAS_AGENT_NAME=CustomerBot
-      - ATLAS_API_KEY=my-secret-api-key
-      - ATLAS_SECRET_STRIPE_KEY=sk_live_...
+      - TALOS_AGENT_NAME=CustomerBot
+      - TALOS_API_KEY=my-secret-api-key
+      - TALOS_SECRET_STRIPE_KEY=sk_live_...
 ```
 
 ### How It Works
 
-1. On container startup, `init.sh` checks for `$HOME/.atlas-inject/`
-2. If the directory exists and `$HOME/.atlas-inject/.done` does NOT exist:
+1. On container startup, `init.sh` checks for `$HOME/.talos-inject/`
+2. If the directory exists and `$HOME/.talos-inject/.done` does NOT exist:
    - Copies `identity.md` → `IDENTITY.md`
    - Copies `soul.md` → `SOUL.md`
    - Merges `memory/*` into `memory/`
-   - Copies `config-overrides.json` → `.atlas-runtime-config.json`
-3. Creates `.atlas-inject/.done` marker to prevent re-injection
+   - Copies `config-overrides.json` → `.talos-runtime-config.json`
+3. Creates `.talos-inject/.done` marker to prevent re-injection
 4. Subsequent restarts skip injection
 
 ---
@@ -257,12 +257,12 @@ Mount a shared volume for projects:
 
 ```yaml
 services:
-  atlas:
+  talos:
     volumes:
       - ./volume:/home/agent
       - /shared/projects:/shared/projects
     environment:
-      - ATLAS_PROJECTS_DIR=/shared/projects
+      - TALOS_PROJECTS_DIR=/shared/projects
 ```
 
 This creates a symlink: `$HOME/projects → /shared/projects`
@@ -272,22 +272,22 @@ This creates a symlink: `$HOME/projects → /shared/projects`
 ## Integration Example: Unclutter
 
 ```yaml
-# Unclutter-managed Atlas instance
+# Unclutter-managed Talos instance
 services:
-  atlas:
+  talos:
     image: ghcr.io/mxzinke/atlas:latest
     volumes:
-      - atlas-data:/home/agent
-      - ./inject/${INSTANCE_ID}:/home/agent/.atlas-inject:ro
+      - talos-data:/home/agent
+      - ./inject/${INSTANCE_ID}:/home/agent/.talos-inject:ro
     environment:
-      - ATLAS_AGENT_NAME=${AGENT_NAME}
-      - ATLAS_AGENT_EMAIL=${AGENT_EMAIL}
-      - ATLAS_API_KEY=${MANAGEMENT_API_KEY}
-      - ATLAS_SECRET_ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
-      - ATLAS_MODEL_TRIGGER=sonnet
-      - ATLAS_USAGE_ENABLED=true
-      - ATLAS_USAGE_WEBHOOK_URL=https://app.unclutter.pro/api/usage
-      - ATLAS_USAGE_WEBHOOK_SECRET=${USAGE_SECRET}
+      - TALOS_AGENT_NAME=${AGENT_NAME}
+      - TALOS_AGENT_EMAIL=${AGENT_EMAIL}
+      - TALOS_API_KEY=${MANAGEMENT_API_KEY}
+      - TALOS_SECRET_ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
+      - TALOS_MODEL_TRIGGER=sonnet
+      - TALOS_USAGE_ENABLED=true
+      - TALOS_USAGE_WEBHOOK_URL=https://app.unclutter.pro/api/usage
+      - TALOS_USAGE_WEBHOOK_SECRET=${USAGE_SECRET}
     ports:
       - "${PORT}:8080"
 ```

@@ -5,4 +5,4 @@ export OUTLOOK_CLIENT_ID="${OUTLOOK_CLIENT_ID:-$(cat /home/agent/secrets/outlook
 export OUTLOOK_CLIENT_SECRET="${OUTLOOK_CLIENT_SECRET:-$(cat /home/agent/secrets/outlook-client-secret 2>/dev/null || echo '')}"
 export OUTLOOK_MAILBOX="${OUTLOOK_MAILBOX:-$(cat /home/agent/secrets/outlook-mailbox 2>/dev/null || echo '')}"
 export OUTLOOK_ALLOWED_SENDERS="${OUTLOOK_ALLOWED_SENDERS:-$(cat /home/agent/secrets/outlook-allowed-senders 2>/dev/null || echo '')}"
-exec python3 /atlas/app/integrations/email/outlook.py "$@"
+exec python3 /talos/app/integrations/email/outlook.py "$@"

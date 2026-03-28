@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Trigger management CLI
- * Usage: bun /atlas/app/triggers/manage.ts <command> [flags]
+ * Usage: bun /talos/app/triggers/manage.ts <command> [flags]
  *
  * Commands:
  *   create  --name=<slug> --type=<cron|webhook|manual> [--schedule=...] [--secret=...] [--channel=internal] [--description=...] [--session-mode=ephemeral|persistent]
@@ -23,7 +23,7 @@ function die(msg: string): never {
 
 function syncCrontab(): void {
   try {
-    Bun.spawnSync(["bun", "/atlas/app/triggers/sync-crontab.ts"]);
+    Bun.spawnSync(["bun", "/talos/app/triggers/sync-crontab.ts"]);
   } catch {}
 }
 
@@ -31,7 +31,7 @@ function readRelayUrl(): string {
   const defaultRelayUrl = "https://webhooks.unclutter.pro";
   // Try user config first, then fall back to app defaults
   const userConfigPath = (process.env.HOME ?? "") + "/config.yml";
-  const appConfigPath = "/atlas/app/defaults/config.yml";
+  const appConfigPath = "/talos/app/defaults/config.yml";
   for (const configPath of [userConfigPath, appConfigPath]) {
     if (existsSync(configPath)) {
       try {
@@ -98,7 +98,7 @@ const argv = Bun.argv.slice(2); // skip bun + script path
 const command = argv[0];
 
 if (!command || command === "--help" || command === "-h") {
-  console.log(`Usage: bun /atlas/app/triggers/manage.ts <command> [flags]
+  console.log(`Usage: bun /talos/app/triggers/manage.ts <command> [flags]
 
 Commands:
   create  --name=<slug> --type=<cron|webhook|manual> [--schedule=...] [--secret=...] [--channel=internal] [--description=...] [--session-mode=ephemeral|persistent]

@@ -8,13 +8,13 @@
 
 set -euo pipefail
 
-OUTLOOK="/atlas/app/bin/outlook"
-TELEGRAM="/atlas/app/bin/telegram"
-TRIGGER_SCRIPT="/atlas/app/triggers/trigger-runner"
+OUTLOOK="/talos/app/bin/outlook"
+TELEGRAM="/talos/app/bin/telegram"
+TRIGGER_SCRIPT="/talos/app/triggers/trigger-runner"
 STEFAN_CHAT_ID="${EMAIL_NOTIFY_CHAT_ID:-129584068}"
 STATE_FILE="/home/agent/.index/email-poller-seen.txt"
 STATE_MAX_IDS=500
-CALENDAR_FILE="/home/agent/projects/atlas/app/data/mvp-travel-assistant/calendar.json"
+CALENDAR_FILE="/home/agent/projects/talos/app/data/mvp-travel-assistant/calendar.json"
 
 # Ensure directories exist
 mkdir -p /home/agent/.index /home/agent/.logs
@@ -107,7 +107,7 @@ print(json.dumps({
 " "$msg_id" "$from_val" "$subject_val" "$email_content" "$calendar_content")
 
     # Fire the travel-request trigger
-    if "$TRIGGER_SCRIPT" travel-request "$payload" "email-$msg_id" >>/atlas/logs/trigger-travel-request-spawn.log 2>&1; then
+    if "$TRIGGER_SCRIPT" travel-request "$payload" "email-$msg_id" >>/talos/logs/trigger-travel-request-spawn.log 2>&1; then
         echo "[email-poller] Triggered travel-request for: $subject_val" >&2
     else
         echo "[email-poller] WARNING: Trigger failed for $msg_id, sending notification instead" >&2

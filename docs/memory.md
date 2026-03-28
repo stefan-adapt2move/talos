@@ -1,6 +1,6 @@
 # Memory System
 
-Atlas uses a file-based memory system with plain Markdown files, YAML frontmatter, and `[[wikilinks]]` for cross-referencing. Memory retrieval is done directly via grep, glob, and file reads — no external indexing daemon required.
+Talos uses a file-based memory system with plain Markdown files, YAML frontmatter, and `[[wikilinks]]` for cross-referencing. Memory retrieval is done directly via grep, glob, and file reads — no external indexing daemon required.
 
 ## Architecture
 

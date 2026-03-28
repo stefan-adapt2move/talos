@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/web-ui",
+  "name": "@talos/web-ui",
   "version": "1.0.0",
   "type": "module",
   "main": "index.ts",

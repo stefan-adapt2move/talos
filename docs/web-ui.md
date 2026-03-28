@@ -1,6 +1,6 @@
 # Web-UI
 
-The Web-UI is a Hono.js server with HTMX for live updates. It's server-side rendered (no SPA build step) and provides the dashboard interface to Atlas.
+The Web-UI is a Hono.js server with HTMX for live updates. It's server-side rendered (no SPA build step) and provides the dashboard interface to Talos.
 
 ## Implementation
 

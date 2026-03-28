@@ -2,7 +2,7 @@
 # Editable by Claude and via the Web-UI
 
 agent:
-  name: "Atlas" # Display name for the agent (used in UI, logs, prompts). Override with ATLAS_AGENT_NAME env var.
+  name: "Talos" # Display name for the agent (used in UI, logs, prompts). Override with TALOS_AGENT_NAME env var.
   email: "" # Agent email address (optional, for integrations)
 
 models:
@@ -33,7 +33,7 @@ email:
   imap_starttls: false # Set true for port 143 (STARTTLS)
   smtp_host: "" # e.g. "smtp.gmail.com" or "mailcow.mail.svc.cluster.local"
   smtp_port: 587
-  username: "" # e.g. "atlas@example.com"
+  username: "" # e.g. "talos@example.com"
   password_file: "/home/agent/secrets/email-password"
   folder: "INBOX"
   ssl_verify: true # Set false for self-signed certs (e.g. internal Mailcow)
@@ -78,7 +78,7 @@ usage_reporting:
 
 # Workspace paths — override to customize directory layout
 workspace:
-  projects_dir: "" # Custom projects directory path (default: $HOME/projects). Override with ATLAS_PROJECTS_DIR env var.
+  projects_dir: "" # Custom projects directory path (default: $HOME/projects). Override with TALOS_PROJECTS_DIR env var.
 
 # Claude Code Plugins — enable/disable marketplace plugins
 # Format: "plugin-id@marketplace-id": true/false

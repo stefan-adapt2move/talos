@@ -13,7 +13,7 @@ Subcommands:
   thread <thread_id>        Show thread detail
 
 Concurrency: poll fetches all new UIDs first, writes them to the email DB and
-atlas inbox in a single pass, then fires triggers in the background (non-blocking)
+talos inbox in a single pass, then fires triggers in the background (non-blocking)
 so parallel threads don't block each other.
 """
 
@@ -43,11 +43,11 @@ from pathlib import Path
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-RUNTIME_CONFIG_PATH = os.environ["HOME"] + "/.atlas-runtime-config.json"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+RUNTIME_CONFIG_PATH = os.environ["HOME"] + "/.talos-runtime-config.json"
+TALOS_DB_PATH = os.environ["HOME"] + "/.index/talos.db"
 EMAIL_DB_DIR = os.environ["HOME"] + "/.index/email"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
-TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"
+TRIGGER_SCRIPT = "/talos/app/triggers/trigger.sh"
 TRIGGER_NAME = "email-handler"
 ATTACHMENTS_DIR = os.environ["HOME"] + "/.index/email/attachments"
 MESSAGES_DIR = os.environ["HOME"] + "/.index/email/messages"
@@ -60,7 +60,7 @@ def load_config():
 
     Resolution order (highest priority wins):
       1. Environment variables
-      2. Runtime config (~/.atlas-runtime-config.json)
+      2. Runtime config (~/.talos-runtime-config.json)
       3. config.yml
       4. Built-in defaults
 
@@ -467,19 +467,19 @@ def is_whitelisted(sender, whitelist):
     return False
 
 
-# --- Atlas inbox helper ---
+# --- Talos inbox helper ---
 
-def write_to_atlas_inbox(sender, content, thread_id):
-    """Write email to the main Atlas inbox. Returns message ID."""
-    atlas_db = sqlite3.connect(ATLAS_DB_PATH)
-    atlas_db.execute("PRAGMA busy_timeout=5000")
-    cursor = atlas_db.execute(
+def write_to_talos_inbox(sender, content, thread_id):
+    """Write email to the main Talos inbox. Returns message ID."""
+    talos_db = sqlite3.connect(TALOS_DB_PATH)
+    talos_db.execute("PRAGMA busy_timeout=5000")
+    cursor = talos_db.execute(
         "INSERT INTO messages (channel, sender, content) VALUES (?, ?, ?)",
         ("email", sender, content),
     )
     msg_id = cursor.lastrowid
-    atlas_db.commit()
-    atlas_db.close()
+    talos_db.commit()
+    talos_db.close()
     # Touch .wake so main session picks up the message even if trigger.sh fails
     Path(WAKE_PATH).touch()
     return msg_id
@@ -565,7 +565,7 @@ def _fetch_new_emails(mail, db, config):
         if attachments:
             att_summary = "\n".join(f"  - {a['filename']} ({a['content_type']}, {a['size']} bytes): {a['path']}" for a in attachments)
             inbox_content += f"\n\nAttachments:\n{att_summary}"
-        inbox_msg_id = write_to_atlas_inbox(sender, inbox_content, thread_id)
+        inbox_msg_id = write_to_talos_inbox(sender, inbox_content, thread_id)
 
         # Update email record with inbox msg id
         db.execute("UPDATE emails SET inbox_msg_id = ? WHERE rowid = last_insert_rowid()", (inbox_msg_id,))
@@ -871,7 +871,7 @@ def cmd_send(config, to, subject, body, attachments=None):
     msg["To"] = to
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
-    domain = config["username"].split("@")[-1] if "@" in config["username"] else "atlas.local"
+    domain = config["username"].split("@")[-1] if "@" in config["username"] else "talos.local"
     msg["Message-ID"] = make_msgid(domain=domain)
 
     try:
@@ -938,7 +938,7 @@ def cmd_reply(config, thread_id, body, attachments=None):
     msg["To"] = recipient
     msg["Subject"] = f"Re: {subject}"
     msg["Date"] = formatdate(localtime=True)
-    domain = config["username"].split("@")[-1] if "@" in config["username"] else "atlas.local"
+    domain = config["username"].split("@")[-1] if "@" in config["username"] else "talos.local"
     msg["Message-ID"] = make_msgid(domain=domain)
 
     if last_message_id:
@@ -1047,7 +1047,7 @@ def cmd_thread_detail(config, thread_id):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} Email Add-on — unified email management",
+        description=f"{os.environ.get('AGENT_NAME', 'Talos')} Email Add-on — unified email management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

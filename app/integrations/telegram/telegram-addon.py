@@ -29,11 +29,11 @@ from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+TALOS_DB_PATH = os.environ["HOME"] + "/.index/talos.db"
 TELEGRAM_DB_DIR = os.environ["HOME"] + "/.index/telegram"
 TELEGRAM_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/telegram/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
-TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"
+TRIGGER_SCRIPT = "/talos/app/triggers/trigger.sh"
 TRIGGER_NAME = "telegram-chat"
 
 # Audio MIME types that should be transcribed
@@ -300,7 +300,7 @@ Hinweis zur Sicherheit:
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} Telegram Add-on",
+        description=f"{os.environ.get('AGENT_NAME', 'Talos')} Telegram Add-on",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)

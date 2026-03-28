@@ -3,7 +3,7 @@
 # Delegates to the stt skill script, or uses inline implementation if skill not installed.
 
 SKILL_SCRIPT="$HOME/skills/stt/scripts/stt.sh"
-DEFAULT_SCRIPT="/atlas/app/defaults/skills/stt/scripts/stt.sh"
+DEFAULT_SCRIPT="/talos/app/defaults/skills/stt/scripts/stt.sh"
 
 if [[ -x "$SKILL_SCRIPT" ]]; then
   exec "$SKILL_SCRIPT" "$@"

@@ -75,4 +75,4 @@ Within a single trigger session, agent teammates can work in parallel on non-ove
 
 ## Log Files
 
-- `/atlas/logs/trigger-<name>.log` — Per-trigger session output
+- `/talos/logs/trigger-<name>.log` — Per-trigger session output

@@ -18,7 +18,7 @@ import urllib.error
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 POLL_TIMEOUT = 30  # seconds for long poll
-TELEGRAM_CLI = "/atlas/app/bin/telegram"
+TELEGRAM_CLI = "/talos/app/bin/telegram"
 
 
 def get_token():

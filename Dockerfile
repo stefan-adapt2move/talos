@@ -77,11 +77,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && npm install -g @anthropic-ai/claude-code \
   && claude --version
 
-ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
+ENV PATH="/talos/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 
 # Create directory structure (owned by agent from the start)
-RUN mkdir -p /atlas/app /atlas/logs \
+RUN mkdir -p /talos/app /talos/logs \
   /home/agent/memory/projects \
   /home/agent/memory/journal \
   /home/agent/.index \
@@ -92,31 +92,32 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/triggers \
   /home/agent/secrets \
   /home/agent/helpers \
-  && chown -R agent:agent /atlas /home/agent \
-  && ln -s /home/agent /home/atlas
+  && chown -R agent:agent /talos /home/agent \
+  && ln -s /home/agent /home/atlas \
+  && ln -s /home/agent /home/talos
 
 # Copy application code (--chown avoids extra chown layer)
-COPY --chown=agent:agent app/ /atlas/app/
-COPY --chown=agent:agent .claude/settings.json /atlas/app/.claude/settings.json
-COPY --chown=agent:agent supervisord.conf /etc/supervisor/conf.d/atlas.conf
-COPY --chown=agent:agent app/nginx.conf /etc/nginx/sites-available/atlas
+COPY --chown=agent:agent app/ /talos/app/
+COPY --chown=agent:agent .claude/settings.json /talos/app/.claude/settings.json
+COPY --chown=agent:agent supervisord.conf /etc/supervisor/conf.d/talos.conf
+COPY --chown=agent:agent app/nginx.conf /etc/nginx/sites-available/talos
 
 # Copy compiled trigger-runner native binary from build stage
-COPY --chown=agent:agent --from=trigger-builder /build/triggers/trigger-runner /atlas/app/triggers/trigger-runner
+COPY --chown=agent:agent --from=trigger-builder /build/triggers/trigger-runner /talos/app/triggers/trigger-runner
 
 # Set permissions, install bun deps, configure nginx/supervisor (single layer)
-RUN chmod +x /atlas/app/entrypoint.sh \
-  && chmod +x /atlas/app/init.sh \
-  && chmod +x /atlas/app/hooks/*.sh \
-  && chmod +x /atlas/app/triggers/cron/*.sh \
-  && chmod +x /atlas/app/triggers/trigger-runner \
-  && chmod +x /atlas/app/bin/* \
-  && cd /atlas/app/lib && bun install \
-  && cd /atlas/app/atlas-mcp && bun install \
-  && cd /atlas/app/triggers && bun install \
-  && cd /atlas/app/integrations/whatsapp && bun install \
-  && cd /atlas/app/web-ui && bun install \
-  && ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
+RUN chmod +x /talos/app/entrypoint.sh \
+  && chmod +x /talos/app/init.sh \
+  && chmod +x /talos/app/hooks/*.sh \
+  && chmod +x /talos/app/triggers/cron/*.sh \
+  && chmod +x /talos/app/triggers/trigger-runner \
+  && chmod +x /talos/app/bin/* \
+  && cd /talos/app/lib && bun install \
+  && cd /talos/app/talos-mcp && bun install \
+  && cd /talos/app/triggers && bun install \
+  && cd /talos/app/integrations/whatsapp && bun install \
+  && cd /talos/app/web-ui && bun install \
+  && ln -sf /etc/nginx/sites-available/talos /etc/nginx/sites-enabled/talos \
   && rm -f /etc/nginx/sites-enabled/default \
   && chown -R agent:agent /var/log/nginx /var/lib/nginx /etc/supervisor \
   && (chown -R agent:agent /var/run 2>/dev/null || true)
@@ -126,4 +127,4 @@ WORKDIR /home/agent
 EXPOSE 8080
 
 # Entrypoint runs as root to fix volume permissions, then drops to agent
-ENTRYPOINT ["/atlas/app/entrypoint.sh"]
+ENTRYPOINT ["/talos/app/entrypoint.sh"]

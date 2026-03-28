@@ -13,13 +13,13 @@ import {
 } from "fs";
 import { join, resolve, relative } from "path";
 import { homedir } from "os";
-import { getDb } from "../atlas-mcp/db";
+import { getDb } from "../talos-mcp/db";
 import { apiKeyAuth } from "../lib/api-auth";
 import { resolveConfig, redactConfig, getConfigSources } from "../lib/config";
 import { pauseAtlas, resumeAtlas, stopAllSessions, getControlStatus, isAtlasPaused } from "../lib/kill-switch";
 
 // --- Config ---
-const AGENT_NAME = process.env.AGENT_NAME || "Atlas";
+const AGENT_NAME = process.env.AGENT_NAME || "Talos";
 const WS = process.env.HOME!;
 const MEMORY = `${WS}/memory`;
 const IDENTITY = `${WS}/IDENTITY.md`;
@@ -29,7 +29,7 @@ const WAKE = `${WS}/.index/.wake`;
 
 function syncCrontab(): void {
   try {
-    Bun.spawnSync(["bun", "run", "/atlas/app/triggers/sync-crontab.ts"]);
+    Bun.spawnSync(["bun", "run", "/talos/app/triggers/sync-crontab.ts"]);
   } catch {}
 }
 
@@ -555,7 +555,7 @@ app.post("/triggers/:id/run", (c) => {
   if (!t) return c.html('<div class="text-muted">Not found</div>');
 
   // Fire through trigger.sh for consistent behavior (session_mode, prompts, IPC)
-  Bun.spawn(["/atlas/app/triggers/trigger.sh", t.name], {
+  Bun.spawn(["/talos/app/triggers/trigger.sh", t.name], {
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -627,7 +627,7 @@ app.post("/api/webhook/:name", async (c) => {
   }
 
   // Fire through trigger.sh for consistent behavior (session_mode, prompts, IPC)
-  Bun.spawn(["/atlas/app/triggers/trigger.sh", t.name, payload], {
+  Bun.spawn(["/talos/app/triggers/trigger.sh", t.name, payload], {
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -906,7 +906,7 @@ app.post("/chat", async (c) => {
     timestamp: msg.created_at,
   });
   Bun.spawn(
-    ["/atlas/app/triggers/trigger.sh", "web-chat", payload, "_default"],
+    ["/talos/app/triggers/trigger.sh", "web-chat", payload, "_default"],
     {
       stdout: "ignore",
       stderr: "ignore",
@@ -1378,7 +1378,7 @@ api.get("/config/:section", (c) => {
 
 api.patch("/config", async (c) => {
   const body = await c.req.json();
-  const runtimePath = join(WS, ".atlas-runtime-config.json");
+  const runtimePath = join(WS, ".talos-runtime-config.json");
 
   // Read existing runtime config
   let existing: Record<string, any> = {};
@@ -1405,7 +1405,7 @@ api.patch("/config", async (c) => {
 
   // Regenerate settings
   try {
-    Bun.spawnSync(["bun", "run", "/atlas/app/hooks/generate-settings.ts"]);
+    Bun.spawnSync(["bun", "run", "/talos/app/hooks/generate-settings.ts"]);
   } catch {}
   syncCrontab();
 
@@ -1597,10 +1597,10 @@ api.post("/triggers/:name/run", (c) => {
   if (!trigger) return c.json({ error: "Not found" }, 404);
 
   if (isAtlasPaused(WS)) {
-    return c.json({ error: "Atlas is paused", message: "Resume Atlas before firing triggers" }, 409);
+    return c.json({ error: "Talos is paused", message: "Resume Talos before firing triggers" }, 409);
   }
 
-  const triggerScript = "/atlas/app/triggers/trigger.sh";
+  const triggerScript = "/talos/app/triggers/trigger.sh";
   Bun.spawn(["bash", triggerScript, trigger.name, "", "_manual"], {
     stdout: "ignore", stderr: "ignore",
   });
@@ -1636,7 +1636,7 @@ api.post("/chat/messages", async (c) => {
     timestamp: msg.created_at,
   });
   Bun.spawn(
-    ["/atlas/app/triggers/trigger.sh", "web-chat", payload, "_default"],
+    ["/talos/app/triggers/trigger.sh", "web-chat", payload, "_default"],
     { stdout: "ignore", stderr: "ignore" },
   );
 

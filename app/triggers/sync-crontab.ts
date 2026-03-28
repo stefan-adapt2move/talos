@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { openDb } from "../lib/db.ts";
 const CRONTAB_OUT = process.env.HOME + "/crontab";
-const STATIC_CRONTAB = "/atlas/app/defaults/crontab";
+const STATIC_CRONTAB = "/talos/app/defaults/crontab";
 const MARKER = "# === AUTO-GENERATED TRIGGERS (do not edit below) ===";
 
 // Read static crontab (everything above the marker, or the whole file)
@@ -22,7 +22,7 @@ try {
   try {
     staticPart = readFileSync(STATIC_CRONTAB, "utf-8").trimEnd();
   } catch {
-    staticPart = `# ${process.env.AGENT_NAME || "Atlas"} Crontab (supercronic)`;
+    staticPart = `# ${process.env.AGENT_NAME || "Talos"} Crontab (supercronic)`;
   }
 }
 
@@ -36,7 +36,7 @@ try {
 
   cronLines = triggers
     .filter(t => /^[a-z0-9_-]+$/.test(t.name) && /^[\d\s*\/,-]+$/.test(t.schedule))
-    .map(t => `${t.schedule}  /atlas/app/triggers/trigger.sh ${t.name}`);
+    .map(t => `${t.schedule}  /talos/app/triggers/trigger.sh ${t.name}`);
   db.close();
 } catch (err) {
   console.error("Warning: could not read triggers from DB:", err);

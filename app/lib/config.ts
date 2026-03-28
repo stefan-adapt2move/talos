@@ -1,9 +1,9 @@
 /**
- * Unified Configuration Resolution for Atlas
+ * Unified Configuration Resolution for Talos
  *
  * Resolution order (highest priority wins):
- *   1. Environment variables (ATLAS_* prefix)
- *   2. Runtime config overrides ($HOME/.atlas-runtime-config.json)
+ *   1. Environment variables (TALOS_* prefix)
+ *   2. Runtime config overrides ($HOME/.talos-runtime-config.json)
  *   3. config.yml ($HOME/config.yml)
  *   4. Built-in defaults
  *
@@ -120,7 +120,7 @@ export type ConfigSource = "env" | "runtime" | "file" | "default";
 // ---------------------------------------------------------------------------
 
 const DEFAULTS: AtlasConfig = {
-  agent: { name: "Atlas", email: "" },
+  agent: { name: "Talos", email: "" },
   models: { main: "sonnet", trigger: "opus", cron: "sonnet", subagent_review: "sonnet", hooks: "haiku" },
   memory: { load_memory_md: true, load_journal_days: 7 },
   signal: { number: "", history_turns: 20, whitelist: [] },
@@ -173,44 +173,44 @@ type EnvMapping = {
 };
 
 const ENV_MAPPINGS: EnvMapping[] = [
-  { env: "ATLAS_AGENT_NAME", aliases: ["AGENT_NAME"], path: "agent.name", type: "string" },
-  { env: "ATLAS_AGENT_EMAIL", path: "agent.email", type: "string" },
-  { env: "ATLAS_MODEL_MAIN", path: "models.main", type: "string" },
-  { env: "ATLAS_MODEL_TRIGGER", path: "models.trigger", type: "string" },
-  { env: "ATLAS_MODEL_CRON", path: "models.cron", type: "string" },
-  { env: "ATLAS_MODEL_SUBAGENT_REVIEW", path: "models.subagent_review", type: "string" },
-  { env: "ATLAS_MODEL_HOOKS", path: "models.hooks", type: "string" },
-  { env: "ATLAS_MEMORY_LOAD_MEMORY_MD", path: "memory.load_memory_md", type: "boolean" },
-  { env: "ATLAS_MEMORY_LOAD_JOURNAL_DAYS", path: "memory.load_journal_days", type: "number" },
-  { env: "ATLAS_SIGNAL_NUMBER", aliases: ["SIGNAL_NUMBER"], path: "signal.number", type: "string" },
-  { env: "ATLAS_SIGNAL_HISTORY_TURNS", path: "signal.history_turns", type: "number" },
-  { env: "ATLAS_SIGNAL_WHITELIST", path: "signal.whitelist", type: "string[]" },
-  { env: "ATLAS_EMAIL_IMAP_HOST", aliases: ["EMAIL_IMAP_HOST"], path: "email.imap_host", type: "string" },
-  { env: "ATLAS_EMAIL_IMAP_PORT", aliases: ["EMAIL_IMAP_PORT"], path: "email.imap_port", type: "number" },
-  { env: "ATLAS_EMAIL_SMTP_HOST", aliases: ["EMAIL_SMTP_HOST"], path: "email.smtp_host", type: "string" },
-  { env: "ATLAS_EMAIL_SMTP_PORT", aliases: ["EMAIL_SMTP_PORT"], path: "email.smtp_port", type: "number" },
-  { env: "ATLAS_EMAIL_USERNAME", aliases: ["EMAIL_USERNAME"], path: "email.username", type: "string" },
-  { env: "ATLAS_EMAIL_PASSWORD_FILE", path: "email.password_file", type: "string" },
-  { env: "ATLAS_EMAIL_FOLDER", path: "email.folder", type: "string" },
-  { env: "ATLAS_EMAIL_WHITELIST", path: "email.whitelist", type: "string[]" },
-  { env: "ATLAS_EMAIL_MARK_READ", path: "email.mark_read", type: "boolean" },
-  { env: "ATLAS_DAILY_CLEANUP_ENABLED", path: "daily_cleanup.enabled", type: "boolean" },
-  { env: "ATLAS_DAILY_CLEANUP_RETENTION_DAYS", path: "daily_cleanup.retention_days", type: "number" },
-  { env: "ATLAS_DAILY_CLEANUP_METRICS_RETENTION_DAYS", path: "daily_cleanup.metrics_retention_days", type: "number" },
-  { env: "ATLAS_WEB_UI_PORT", path: "web_ui.port", type: "number" },
-  { env: "ATLAS_WEB_UI_BIND", path: "web_ui.bind", type: "string" },
-  { env: "ATLAS_FAILURE_NOTIFICATION_COMMAND", path: "failure_handling.notification_command", type: "string" },
-  { env: "ATLAS_FAILURE_BACKOFF_INITIAL", path: "failure_handling.backoff_initial_seconds", type: "number" },
-  { env: "ATLAS_FAILURE_BACKOFF_MAX", path: "failure_handling.backoff_max_seconds", type: "number" },
-  { env: "ATLAS_FAILURE_NOTIFICATION_THRESHOLD", path: "failure_handling.notification_threshold_minutes", type: "number" },
-  { env: "ATLAS_STT_ENABLED", path: "stt.enabled", type: "boolean" },
-  { env: "ATLAS_STT_URL", aliases: ["STT_URL"], path: "stt.url", type: "string" },
-  { env: "ATLAS_WEBHOOK_RELAY_URL", path: "webhook.relay_url", type: "string" },
-  { env: "ATLAS_USAGE_ENABLED", path: "usage_reporting.enabled", type: "boolean" },
-  { env: "ATLAS_USAGE_WEBHOOK_URL", path: "usage_reporting.webhook_url", type: "string" },
-  { env: "ATLAS_USAGE_WEBHOOK_SECRET", path: "usage_reporting.webhook_secret", type: "string" },
-  { env: "ATLAS_USAGE_INCLUDE_TOKENS", path: "usage_reporting.include_tokens", type: "boolean" },
-  { env: "ATLAS_PROJECTS_DIR", path: "workspace.projects_dir", type: "string" },
+  { env: "TALOS_AGENT_NAME", aliases: ["AGENT_NAME"], path: "agent.name", type: "string" },
+  { env: "TALOS_AGENT_EMAIL", path: "agent.email", type: "string" },
+  { env: "TALOS_MODEL_MAIN", path: "models.main", type: "string" },
+  { env: "TALOS_MODEL_TRIGGER", path: "models.trigger", type: "string" },
+  { env: "TALOS_MODEL_CRON", path: "models.cron", type: "string" },
+  { env: "TALOS_MODEL_SUBAGENT_REVIEW", path: "models.subagent_review", type: "string" },
+  { env: "TALOS_MODEL_HOOKS", path: "models.hooks", type: "string" },
+  { env: "TALOS_MEMORY_LOAD_MEMORY_MD", path: "memory.load_memory_md", type: "boolean" },
+  { env: "TALOS_MEMORY_LOAD_JOURNAL_DAYS", path: "memory.load_journal_days", type: "number" },
+  { env: "TALOS_SIGNAL_NUMBER", aliases: ["SIGNAL_NUMBER"], path: "signal.number", type: "string" },
+  { env: "TALOS_SIGNAL_HISTORY_TURNS", path: "signal.history_turns", type: "number" },
+  { env: "TALOS_SIGNAL_WHITELIST", path: "signal.whitelist", type: "string[]" },
+  { env: "TALOS_EMAIL_IMAP_HOST", aliases: ["EMAIL_IMAP_HOST"], path: "email.imap_host", type: "string" },
+  { env: "TALOS_EMAIL_IMAP_PORT", aliases: ["EMAIL_IMAP_PORT"], path: "email.imap_port", type: "number" },
+  { env: "TALOS_EMAIL_SMTP_HOST", aliases: ["EMAIL_SMTP_HOST"], path: "email.smtp_host", type: "string" },
+  { env: "TALOS_EMAIL_SMTP_PORT", aliases: ["EMAIL_SMTP_PORT"], path: "email.smtp_port", type: "number" },
+  { env: "TALOS_EMAIL_USERNAME", aliases: ["EMAIL_USERNAME"], path: "email.username", type: "string" },
+  { env: "TALOS_EMAIL_PASSWORD_FILE", path: "email.password_file", type: "string" },
+  { env: "TALOS_EMAIL_FOLDER", path: "email.folder", type: "string" },
+  { env: "TALOS_EMAIL_WHITELIST", path: "email.whitelist", type: "string[]" },
+  { env: "TALOS_EMAIL_MARK_READ", path: "email.mark_read", type: "boolean" },
+  { env: "TALOS_DAILY_CLEANUP_ENABLED", path: "daily_cleanup.enabled", type: "boolean" },
+  { env: "TALOS_DAILY_CLEANUP_RETENTION_DAYS", path: "daily_cleanup.retention_days", type: "number" },
+  { env: "TALOS_DAILY_CLEANUP_METRICS_RETENTION_DAYS", path: "daily_cleanup.metrics_retention_days", type: "number" },
+  { env: "TALOS_WEB_UI_PORT", path: "web_ui.port", type: "number" },
+  { env: "TALOS_WEB_UI_BIND", path: "web_ui.bind", type: "string" },
+  { env: "TALOS_FAILURE_NOTIFICATION_COMMAND", path: "failure_handling.notification_command", type: "string" },
+  { env: "TALOS_FAILURE_BACKOFF_INITIAL", path: "failure_handling.backoff_initial_seconds", type: "number" },
+  { env: "TALOS_FAILURE_BACKOFF_MAX", path: "failure_handling.backoff_max_seconds", type: "number" },
+  { env: "TALOS_FAILURE_NOTIFICATION_THRESHOLD", path: "failure_handling.notification_threshold_minutes", type: "number" },
+  { env: "TALOS_STT_ENABLED", path: "stt.enabled", type: "boolean" },
+  { env: "TALOS_STT_URL", aliases: ["STT_URL"], path: "stt.url", type: "string" },
+  { env: "TALOS_WEBHOOK_RELAY_URL", path: "webhook.relay_url", type: "string" },
+  { env: "TALOS_USAGE_ENABLED", path: "usage_reporting.enabled", type: "boolean" },
+  { env: "TALOS_USAGE_WEBHOOK_URL", path: "usage_reporting.webhook_url", type: "string" },
+  { env: "TALOS_USAGE_WEBHOOK_SECRET", path: "usage_reporting.webhook_secret", type: "string" },
+  { env: "TALOS_USAGE_INCLUDE_TOKENS", path: "usage_reporting.include_tokens", type: "boolean" },
+  { env: "TALOS_PROJECTS_DIR", path: "workspace.projects_dir", type: "string" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -289,13 +289,13 @@ export function getConfigSources(): Record<string, ConfigSource> {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the full Atlas configuration by merging defaults, config.yml,
+ * Resolve the full Talos configuration by merging defaults, config.yml,
  * runtime overrides, and environment variables.
  */
 export function resolveConfig(home?: string): AtlasConfig {
   const homeDir = home ?? process.env.HOME ?? "/home/agent";
   const configPath = join(homeDir, "config.yml");
-  const runtimePath = join(homeDir, ".atlas-runtime-config.json");
+  const runtimePath = join(homeDir, ".talos-runtime-config.json");
 
   // Start with defaults
   const config = deepClone(DEFAULTS);

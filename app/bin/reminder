@@ -1,2 +1,2 @@
 #!/bin/bash
-exec bun /atlas/app/triggers/manage-reminders.ts "$@"
+exec bun /talos/app/triggers/manage-reminders.ts "$@"

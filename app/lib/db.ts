@@ -1,7 +1,7 @@
 /**
  * Shared SQLite database helper.
  *
- * Every process that touches atlas.db should use `openDb()` so that
+ * Every process that touches talos.db should use `openDb()` so that
  * busy_timeout, WAL mode and foreign keys are configured consistently.
  * Without busy_timeout, concurrent cron triggers will immediately get
  * SQLITE_BUSY instead of retrying.
@@ -10,10 +10,10 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 
-export const DB_PATH = `${process.env.HOME}/.index/atlas.db`;
+export const DB_PATH = `${process.env.HOME}/.index/talos.db`;
 
 /**
- * Open (or create) the atlas SQLite database with safe defaults:
+ * Open (or create) the talos SQLite database with safe defaults:
  *   - journal_mode = WAL   (concurrent readers + single writer)
  *   - busy_timeout = 5000  (wait up to 5 s instead of failing immediately)
  *   - foreign_keys = ON

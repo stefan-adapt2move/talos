@@ -75,7 +75,7 @@ trigger_session:
 
 ## Source
 
-- `app/atlas-mcp/index.ts` — `path_lock`, `path_unlock`, `path_lock_status` tool implementations
-- `app/atlas-mcp/locks.ts` — Path locking logic and conflict detection
+- `app/talos-mcp/index.ts` — `path_lock`, `path_unlock`, `path_lock_status` tool implementations
+- `app/talos-mcp/locks.ts` — Path locking logic and conflict detection
 - `app/hooks/stop.sh` — PID-based lock cleanup on session exit
 - `app/entrypoint.sh` — Clears all locks on container start

@@ -156,9 +156,9 @@ curl -X POST http://localhost:8080/triggers \
    - Secret: `my-secret-token` (optional)
    - Prompt: `A push event was received:\n\n{{payload}}\n\nSummarize the changes.`
 
-2. Configure the external service to POST to your Atlas instance:
+2. Configure the external service to POST to your Talos instance:
    ```
-   URL:    https://your-atlas-host:8080/api/webhook/github-push
+   URL:    https://your-talos-host:8080/api/webhook/github-push
    Secret: my-secret-token  (as X-Webhook-Secret header)
    ```
 

@@ -1,17 +1,17 @@
 /**
- * API Authentication Middleware for Atlas External Configuration API.
+ * API Authentication Middleware for Talos External Configuration API.
  *
- * If ATLAS_API_KEY is set, all /api/v1/* routes require authentication via:
+ * If TALOS_API_KEY is set, all /api/v1/* routes require authentication via:
  *   - Header: Authorization: Bearer <key>
  *   - Header: X-API-Key: <key>
  *
- * If ATLAS_API_KEY is not set, all routes are open (relying on Docker port
+ * If TALOS_API_KEY is not set, all routes are open (relying on Docker port
  * binding and nginx rate limiting for protection).
  */
 
 import type { Context, Next } from "hono";
 
-const API_KEY = process.env.ATLAS_API_KEY || "";
+const API_KEY = process.env.TALOS_API_KEY || "";
 
 /**
  * Hono middleware that validates API key if configured.

@@ -5,22 +5,22 @@
  * Connects to the smee.io-compatible relay server for each enabled webhook trigger
  * and fires the trigger when events arrive. Supports middleware filter scripts.
  *
- * Usage: bun /atlas/app/triggers/webhook-sse-listener.ts
+ * Usage: bun /talos/app/triggers/webhook-sse-listener.ts
  *
  * supervisord config:
  *   [program:webhook-listener]
- *   command=/atlas/app/bin/webhook-listener
+ *   command=/talos/app/bin/webhook-listener
  *   autostart=true
  *   autorestart=true
- *   stdout_logfile=/atlas/logs/webhook-sse.log
- *   stderr_logfile=/atlas/logs/webhook-sse-error.log
+ *   stdout_logfile=/talos/logs/webhook-sse.log
+ *   stderr_logfile=/talos/logs/webhook-sse-error.log
  */
 
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, appendFileSync } from "fs";
 import { openDb } from "../lib/db.ts";
-const LOG_PATH = "/atlas/logs/webhook-sse.log";
-const TRIGGER_SH = "/atlas/app/triggers/trigger.sh";
+const LOG_PATH = "/talos/logs/webhook-sse.log";
+const TRIGGER_SH = "/talos/app/triggers/trigger.sh";
 const HOME = process.env.HOME ?? "";
 
 // ------- Logging -------
@@ -35,7 +35,7 @@ function log(msg: string): void {
 function readRelayUrl(): string {
   const defaultRelayUrl = "https://webhooks.unclutter.pro";
   const userConfigPath = HOME + "/config.yml";
-  const appConfigPath = "/atlas/app/defaults/config.yml";
+  const appConfigPath = "/talos/app/defaults/config.yml";
   for (const configPath of [userConfigPath, appConfigPath]) {
     if (existsSync(configPath)) {
       try {

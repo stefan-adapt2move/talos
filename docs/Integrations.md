@@ -1,17 +1,17 @@
 # Integrations
 
-Atlas supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or delegate complex tasks to agent teammates.
+Talos supports Signal and Email as communication channels. Each integration writes incoming messages to the inbox, then spawns a trigger session (persistent, keyed per contact/thread) that can reply directly or delegate complex tasks to agent teammates.
 
 ## Architecture
 
 ```
-External Channel          Atlas
+External Channel          Talos
 ═══════════════           ═════
 
 Signal message ──▸ signal incoming <sender> <message>
                     │                     (or: signal poll)
                     ├─▸ UPDATE signal.db contacts + messages
-                    ├─▸ INSERT INTO atlas inbox (channel=signal, reply_to=sender)
+                    ├─▸ INSERT INTO talos inbox (channel=signal, reply_to=sender)
                     │
                     └─▸ trigger.sh signal-chat <payload> <sender>
                           │
@@ -34,7 +34,7 @@ Signal message ──▸ signal incoming <sender> <message>
 Email (IMAP) ──▸ email poll
                     │
                     ├─▸ UPDATE email.db threads + emails
-                    ├─▸ INSERT INTO atlas inbox (channel=email, reply_to=thread_id)
+                    ├─▸ INSERT INTO talos inbox (channel=email, reply_to=thread_id)
                     │
                     └─▸ trigger.sh email-handler <payload> <thread_id>
                           │
@@ -118,10 +118,10 @@ trigger_create:
 
 ```bash
 # Continuous (supervisord):
-python3 /atlas/app/integrations/signal/signal-addon.py poll
+python3 /talos/app/integrations/signal/signal-addon.py poll
 
 # Cron (every minute):
-* * * * *  python3 /atlas/app/integrations/signal/signal-addon.py poll --once
+* * * * *  python3 /talos/app/integrations/signal/signal-addon.py poll --once
 ```
 
 ### CLI Usage
@@ -155,7 +155,7 @@ Each configured number gets its own SQLite database at `~/.index/signal/<number>
 
 ### Whitelist
 
-If `signal.whitelist` is set, only listed numbers can reach Atlas. Others are silently dropped. Empty list = accept all.
+If `signal.whitelist` is set, only listed numbers can reach Talos. Others are silently dropped. Empty list = accept all.
 
 ## Email Add-on
 
@@ -175,7 +175,7 @@ email:
   imap_port: 993
   smtp_host: "smtp.gmail.com"
   smtp_port: 587
-  username: "atlas@example.com"
+  username: "talos@example.com"
   password_file: "/home/agent/secrets/email-password"
   folder: "INBOX"
   whitelist: ["alice@example.com", "example.org"]   # or empty
@@ -212,13 +212,13 @@ trigger_create:
 **4. Start polling**:
 
 ```bash
-# Continuous (supervisord) — write to /atlas/workspace/supervisor.d/email-poller.conf:
+# Continuous (supervisord) — write to /talos/workspace/supervisor.d/email-poller.conf:
 [program:email-poller]
-command=python3 -u /atlas/app/integrations/email/email-addon.py poll
+command=python3 -u /talos/app/integrations/email/email-addon.py poll
 autostart=true
 autorestart=true
-stdout_logfile=/atlas/logs/email-poller.log
-stderr_logfile=/atlas/logs/email-poller-error.log
+stdout_logfile=/talos/logs/email-poller.log
+stderr_logfile=/talos/logs/email-poller-error.log
 environment=PYTHONUNBUFFERED=1
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=3
@@ -230,7 +230,7 @@ stderr_logfile_backups=1
 # missing entirely if the process is restarted before the buffer flushes.
 
 # Cron (every 2 minutes):
-*/2 * * * *  python3 -u /atlas/app/integrations/email/email-addon.py poll --once
+*/2 * * * *  python3 -u /talos/app/integrations/email/email-addon.py poll --once
 ```
 
 ### CLI Usage

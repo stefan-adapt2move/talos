@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 CALENDAR_PATH = os.path.expanduser("~/memory/anton-calendar.json")
 STATE_PATH = os.path.expanduser("~/.index/anton-reminders-sent.json")
 GROUP_CHAT_ID = os.environ.get("ANTON_GROUP_CHAT_ID", "-5084058522")
-ANTON_CLI = "/atlas/app/bin/anton"
+ANTON_CLI = "/talos/app/bin/anton"
 
 def load_calendar():
     try:

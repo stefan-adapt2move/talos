@@ -3,7 +3,7 @@
 sleep 10
 
 # Extract the tunnel URL from cloudflared logs
-TUNNEL_URL=$(grep -oP "https://[a-z0-9-]+\.trycloudflare\.com" /atlas/logs/cloudflared-error.log | tail -1)
+TUNNEL_URL=$(grep -oP "https://[a-z0-9-]+\.trycloudflare\.com" /talos/logs/cloudflared-error.log | tail -1)
 
 if [ -z "$TUNNEL_URL" ]; then
     echo "[$(date)] ERROR: Could not find tunnel URL" >&2

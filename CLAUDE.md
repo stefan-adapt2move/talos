@@ -1,4 +1,4 @@
-# Atlas
+# Talos
 
 Containerized autonomous agent system powered by Claude Code. Made to enable communication from other tools and optimized heavily for long horizon projects and complicated tasks.
 

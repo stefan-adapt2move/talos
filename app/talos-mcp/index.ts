@@ -5,8 +5,8 @@ import { getDb } from "./db";
 import { acquirePathLock, releasePathLock, getActiveLocks } from "./locks";
 
 // --- Session context from environment ---
-const ATLAS_TRIGGER = process.env.ATLAS_TRIGGER || "";
-const IS_TRIGGER = !!ATLAS_TRIGGER;
+const TALOS_TRIGGER = process.env.TALOS_TRIGGER || "";
+const IS_TRIGGER = !!TALOS_TRIGGER;
 
 /** JSON MCP response helper */
 function ok(data: unknown) {
@@ -28,7 +28,7 @@ const server = new McpServer({
 });
 
 // =============================================================================
-// TRIGGER TOOLS — only registered when ATLAS_TRIGGER is set
+// TRIGGER TOOLS — only registered when TALOS_TRIGGER is set
 // =============================================================================
 if (IS_TRIGGER) {
   // --- path_lock: Acquire a path lock before spawning an agent ---
@@ -39,7 +39,7 @@ if (IS_TRIGGER) {
       path: z
         .string()
         .describe(
-          "Directory path to lock (e.g. '/home/atlas/projects/myapp'). The path and all subdirectories are locked, preventing conflicting parallel writes.",
+          "Directory path to lock (e.g. '/home/talos/projects/myapp'). The path and all subdirectories are locked, preventing conflicting parallel writes.",
         ),
     },
     async ({ path }) => {

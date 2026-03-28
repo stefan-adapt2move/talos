@@ -4,8 +4,8 @@
 # Usage: check-daemon-health.sh <service-name> [alert-threshold]
 #
 # Run via cron every 5 minutes:
-#   */5 * * * * /atlas/app/scripts/check-daemon-health.sh telegram-poller
-#   */5 * * * * /atlas/app/scripts/check-daemon-health.sh signal-daemon 5
+#   */5 * * * * /talos/app/scripts/check-daemon-health.sh telegram-poller
+#   */5 * * * * /talos/app/scripts/check-daemon-health.sh signal-daemon 5
 #
 # Arguments:
 #   service-name     - supervisord service name to monitor

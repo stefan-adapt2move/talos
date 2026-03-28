@@ -31,11 +31,11 @@ from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+TALOS_DB_PATH = os.environ["HOME"] + "/.index/talos.db"
 SIGNAL_DB_DIR = os.environ["HOME"] + "/.index/signal"
 SIGNAL_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/signal-cli/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
-TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"
+TRIGGER_SCRIPT = "/talos/app/triggers/trigger.sh"
 TRIGGER_NAME = "signal-chat"
 DAEMON_SOCKET = "/tmp/signal.sock"
 
@@ -73,8 +73,8 @@ def load_config():
     return {
         "number": os.environ.get("SIGNAL_NUMBER", cfg.get("number", "")),
         "whitelist": cfg.get("whitelist", []),
-        "stt_url": os.environ.get("ATLAS_STT_URL", os.environ.get("STT_URL", stt_cfg.get("url", "http://stt:5092/v1/audio/transcriptions"))),
-        "stt_enabled": os.environ.get("ATLAS_STT_ENABLED", os.environ.get("STT_ENABLED", str(stt_cfg.get("enabled", True)))).lower() not in ("false", "0", "no"),
+        "stt_url": os.environ.get("TALOS_STT_URL", os.environ.get("STT_URL", stt_cfg.get("url", "http://stt:5092/v1/audio/transcriptions"))),
+        "stt_enabled": os.environ.get("TALOS_STT_ENABLED", os.environ.get("STT_ENABLED", str(stt_cfg.get("enabled", True)))).lower() not in ("false", "0", "no"),
     }
 
 
@@ -479,16 +479,16 @@ def cmd_incoming(config, sender, message, name="", timestamp="", attachments_jso
         VALUES (?, 'in', ?, ?)
     """, (sender, effective_message[:8000], ts))
 
-    # 2. Write to atlas inbox
-    atlas_db = sqlite3.connect(ATLAS_DB_PATH)
-    atlas_db.execute("PRAGMA busy_timeout=5000")
-    cursor = atlas_db.execute(
+    # 2. Write to talos inbox
+    talos_db = sqlite3.connect(TALOS_DB_PATH)
+    talos_db.execute("PRAGMA busy_timeout=5000")
+    cursor = talos_db.execute(
         "INSERT INTO messages (channel, sender, content) VALUES (?, ?, ?)",
         ("signal", sender, effective_message),
     )
     inbox_msg_id = cursor.lastrowid
-    atlas_db.commit()
-    atlas_db.close()
+    talos_db.commit()
+    talos_db.close()
 
     # Update signal DB with inbox reference
     db.execute("UPDATE messages SET inbox_msg_id = ? WHERE rowid = last_insert_rowid()",
@@ -533,7 +533,7 @@ def cmd_incoming(config, sender, message, name="", timestamp="", attachments_jso
 
 # --- /new SESSION RESET ---
 
-FAREWELL_TEMPLATE_PATH = "/atlas/app/prompts/trigger-channel-signal-farewell.md"
+FAREWELL_TEMPLATE_PATH = "/talos/app/prompts/trigger-channel-signal-farewell.md"
 
 
 def _inject_ipc(socket_path, message):
@@ -581,12 +581,12 @@ def _load_farewell_message():
 def _resume_with_farewell(session_id, sender, farewell):
     """Resume an inactive session with a farewell message so it can save to memory."""
     env = os.environ.copy()
-    env["ATLAS_TRIGGER"] = TRIGGER_NAME
-    env["ATLAS_TRIGGER_CHANNEL"] = "signal"
-    env["ATLAS_TRIGGER_SESSION_KEY"] = sender
+    env["TALOS_TRIGGER"] = TRIGGER_NAME
+    env["TALOS_TRIGGER_CHANNEL"] = "signal"
+    env["TALOS_TRIGGER_SESSION_KEY"] = sender
     env.pop("CLAUDECODE", None)
     subprocess.run(
-        ["/atlas/app/triggers/trigger-runner",
+        ["/talos/app/triggers/trigger-runner",
          "--direct", farewell,
          "--channel", "signal",
          "--resume", session_id],
@@ -601,11 +601,11 @@ def cmd_new_session(config, sender, inbox_msg_id, name="", timestamp=""):
     """Handle /new command: instruct old session to save to memory, then start fresh."""
     ts = timestamp or datetime.now().isoformat()
 
-    atlas_db = sqlite3.connect(ATLAS_DB_PATH)
-    atlas_db.execute("PRAGMA busy_timeout=5000")
+    talos_db = sqlite3.connect(TALOS_DB_PATH)
+    talos_db.execute("PRAGMA busy_timeout=5000")
 
     # Find existing session for this sender
-    row = atlas_db.execute(
+    row = talos_db.execute(
         "SELECT session_id FROM trigger_sessions WHERE trigger_name=? AND session_key=?",
         (TRIGGER_NAME, sender),
     ).fetchone()
@@ -638,14 +638,14 @@ def cmd_new_session(config, sender, inbox_msg_id, name="", timestamp=""):
                 print(f"[{datetime.now()}] /new: Failed to resume for farewell: {e}", file=sys.stderr)
 
         # Clear old session from DB (even if farewell failed — proceed with fresh start)
-        atlas_db.execute(
+        talos_db.execute(
             "DELETE FROM trigger_sessions WHERE trigger_name=? AND session_key=?",
             (TRIGGER_NAME, sender),
         )
-        atlas_db.commit()
+        talos_db.commit()
         print(f"[{datetime.now()}] /new: Cleared session for {sender}")
 
-    atlas_db.close()
+    talos_db.close()
 
     # Fire fresh trigger — no session in DB means trigger.sh creates a brand new one
     payload = json.dumps({
@@ -809,7 +809,7 @@ def cmd_history(config, contact_number, limit=20):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{os.environ.get('AGENT_NAME', 'Atlas')} Signal Add-on",
+        description=f"{os.environ.get('AGENT_NAME', 'Talos')} Signal Add-on",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
