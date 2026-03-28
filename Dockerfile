@@ -93,7 +93,8 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/secrets \
   /home/agent/helpers \
   && chown -R agent:agent /atlas /home/agent \
-  && ln -s /home/agent /home/atlas
+  && ln -s /home/agent /home/atlas \
+  && ln -s /home/agent /home/talos
 
 # Copy application code (--chown avoids extra chown layer)
 COPY --chown=agent:agent app/ /atlas/app/
