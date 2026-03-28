@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-DB=$HOME/.index/atlas.db
+APP_NAME="${APP_NAME:-Atlas}"
+APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+DB=$HOME/.index/${APP_NAME_LOWER}.db
 
 # Prune old data (30 days)
 if [ -f "$DB" ]; then

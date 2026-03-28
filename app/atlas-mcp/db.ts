@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 import { openDb } from "../lib/db.ts";
+import { dbFilename } from "../lib/app-name";
 
-const DB_PATH = process.env.HOME + "/.index/atlas.db";
+const DB_PATH = process.env.HOME + "/.index/" + dbFilename;
 
 let db: Database | null = null;
 

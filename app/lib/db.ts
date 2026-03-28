@@ -9,8 +9,9 @@
 
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
+import { dbFilename } from "./app-name";
 
-export const DB_PATH = `${process.env.HOME}/.index/atlas.db`;
+export const DB_PATH = `${process.env.HOME}/.index/${dbFilename}`;
 
 /**
  * Open (or create) the atlas SQLite database with safe defaults:

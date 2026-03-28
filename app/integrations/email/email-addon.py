@@ -42,9 +42,10 @@ from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
 # --- Paths ---
+APP_NAME = os.environ.get("APP_NAME", "Atlas").lower()
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-RUNTIME_CONFIG_PATH = os.environ["HOME"] + "/.atlas-runtime-config.json"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+RUNTIME_CONFIG_PATH = os.environ["HOME"] + f"/.{APP_NAME}-runtime-config.json"
+ATLAS_DB_PATH = os.environ["HOME"] + f"/.index/{APP_NAME}.db"
 EMAIL_DB_DIR = os.environ["HOME"] + "/.index/email"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
 TRIGGER_SCRIPT = "/atlas/app/triggers/trigger.sh"

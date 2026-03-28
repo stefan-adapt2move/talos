@@ -5,12 +5,23 @@ WORKSPACE="$HOME"
 LOG="/atlas/logs/init.log"
 exec > >(tee -a "$LOG") 2>&1
 
-# Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Atlas"
+# Configurable app name (default: Atlas)
+APP_NAME="${APP_NAME:-Atlas}"
+APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+APP_NAME_UPPER=$(echo "$APP_NAME" | tr '[:lower:]' '[:upper:]')
+DB_FILENAME="${APP_NAME_LOWER}.db"
+MCP_CONFIG_DIR=".${APP_NAME_LOWER}-mcp"
+INJECT_DIR=".${APP_NAME_LOWER}-inject"
+RUNTIME_CONFIG_FILE=".${APP_NAME_LOWER}-runtime-config.json"
+PAUSED_MARKER=".${APP_NAME_LOWER}-paused"
+export APP_NAME APP_NAME_LOWER APP_NAME_UPPER
+
+# Resolve agent display name: AGENT_NAME env > APP_NAME env > config.yml agent.name > APP_NAME
 if [ -z "${AGENT_NAME:-}" ]; then
   if [ -f "$WORKSPACE/config.yml" ]; then
     AGENT_NAME=$(grep -A1 '^agent:' "$WORKSPACE/config.yml" 2>/dev/null | grep 'name:' | sed 's/.*name: *"\?\([^"#]*\)"\?.*/\1/' | xargs)
   fi
-  AGENT_NAME="${AGENT_NAME:-Atlas}"
+  AGENT_NAME="${AGENT_NAME:-$APP_NAME}"
 fi
 export AGENT_NAME
 
@@ -89,7 +100,7 @@ fi
 
 # Create default MEMORY.md if it doesn't exist yet
 if [ ! -f "$WORKSPACE/memory/MEMORY.md" ]; then
-  DISPLAY_NAME="${AGENT_NAME:-Atlas}"
+  DISPLAY_NAME="${AGENT_NAME:-$APP_NAME}"
   cat > "$WORKSPACE/memory/MEMORY.md" << MEMEOF
 # ${DISPLAY_NAME} Memory
 
@@ -112,10 +123,10 @@ MEMEOF
 fi
 
 # ── Phase 2b: ENV Secret Bridge ──
-# Any env var matching ATLAS_SECRET_* gets written to $HOME/secrets/<lowercase_suffix>
+# Any env var matching <APP_NAME_UPPER>_SECRET_* gets written to $HOME/secrets/<lowercase_suffix>
 echo "[$(date)] Phase 2b: ENV secret bridge"
-{ env | grep '^ATLAS_SECRET_' || true; } | while IFS='=' read -r key value; do
-  secret_name=$(echo "$key" | sed 's/^ATLAS_SECRET_//' | tr '[:upper:]' '[:lower:]')
+{ env | grep "^${APP_NAME_UPPER}_SECRET_" || true; } | while IFS='=' read -r key value; do
+  secret_name=$(echo "$key" | sed "s/^${APP_NAME_UPPER}_SECRET_//" | tr '[:upper:]' '[:lower:]')
   secret_file="$WORKSPACE/secrets/$secret_name"
   echo "$value" > "$secret_file"
   chmod 600 "$secret_file"
@@ -123,44 +134,46 @@ echo "[$(date)] Phase 2b: ENV secret bridge"
 done
 
 # ── Phase 2c: Injection Directory ──
-# Process $HOME/.atlas-inject/ for first-boot data injection (Docker mount pattern)
-INJECT_DIR="$WORKSPACE/.atlas-inject"
-if [ -d "$INJECT_DIR" ] && [ ! -f "$INJECT_DIR/.done" ]; then
+# Process $HOME/.<appname>-inject/ for first-boot data injection (Docker mount pattern)
+INJECT_DIR_PATH="$WORKSPACE/$INJECT_DIR"
+if [ -d "$INJECT_DIR_PATH" ] && [ ! -f "$INJECT_DIR_PATH/.done" ]; then
   echo "[$(date)] Phase 2c: Processing injection directory"
 
   # Inject IDENTITY.md
-  if [ -f "$INJECT_DIR/identity.md" ]; then
-    cp "$INJECT_DIR/identity.md" "$WORKSPACE/IDENTITY.md"
+  if [ -f "$INJECT_DIR_PATH/identity.md" ]; then
+    cp "$INJECT_DIR_PATH/identity.md" "$WORKSPACE/IDENTITY.md"
     echo "  Injected IDENTITY.md"
   fi
 
   # Inject SOUL.md
-  if [ -f "$INJECT_DIR/soul.md" ]; then
-    cp "$INJECT_DIR/soul.md" "$WORKSPACE/SOUL.md"
+  if [ -f "$INJECT_DIR_PATH/soul.md" ]; then
+    cp "$INJECT_DIR_PATH/soul.md" "$WORKSPACE/SOUL.md"
     echo "  Injected SOUL.md"
   fi
 
   # Inject memory files (merge into memory/)
-  if [ -d "$INJECT_DIR/memory" ]; then
-    cp -rn "$INJECT_DIR/memory/"* "$WORKSPACE/memory/" 2>/dev/null || true
+  if [ -d "$INJECT_DIR_PATH/memory" ]; then
+    cp -rn "$INJECT_DIR_PATH/memory/"* "$WORKSPACE/memory/" 2>/dev/null || true
     echo "  Injected memory files"
   fi
 
   # Inject runtime config overrides
-  if [ -f "$INJECT_DIR/config-overrides.json" ]; then
-    cp "$INJECT_DIR/config-overrides.json" "$WORKSPACE/.atlas-runtime-config.json"
+  if [ -f "$INJECT_DIR_PATH/config-overrides.json" ]; then
+    cp "$INJECT_DIR_PATH/config-overrides.json" "$WORKSPACE/$RUNTIME_CONFIG_FILE"
     echo "  Injected runtime config overrides"
   fi
 
   # Mark as processed
-  touch "$INJECT_DIR/.done"
+  touch "$INJECT_DIR_PATH/.done"
   echo "  Injection complete"
 fi
 
 # ── Phase 2d: Projects Directory Symlink ──
-# Allow ATLAS_PROJECTS_DIR to customize where projects/ points
-if [ -n "${ATLAS_PROJECTS_DIR:-}" ] && [ "$ATLAS_PROJECTS_DIR" != "$WORKSPACE/projects" ]; then
-  if [ -d "$ATLAS_PROJECTS_DIR" ]; then
+# Allow <APP_NAME_UPPER>_PROJECTS_DIR to customize where projects/ points
+_PROJECTS_DIR_VAR="${APP_NAME_UPPER}_PROJECTS_DIR"
+_PROJECTS_DIR="${!_PROJECTS_DIR_VAR:-}"
+if [ -n "$_PROJECTS_DIR" ] && [ "$_PROJECTS_DIR" != "$WORKSPACE/projects" ]; then
+  if [ -d "$_PROJECTS_DIR" ]; then
     # Remove default projects dir if it's empty, then symlink
     if [ -d "$WORKSPACE/projects" ] && [ ! -L "$WORKSPACE/projects" ]; then
       if [ -z "$(ls -A "$WORKSPACE/projects" 2>/dev/null)" ]; then
@@ -168,11 +181,11 @@ if [ -n "${ATLAS_PROJECTS_DIR:-}" ] && [ "$ATLAS_PROJECTS_DIR" != "$WORKSPACE/pr
       fi
     fi
     if [ ! -e "$WORKSPACE/projects" ]; then
-      ln -sfn "$ATLAS_PROJECTS_DIR" "$WORKSPACE/projects"
-      echo "  Linked projects/ → $ATLAS_PROJECTS_DIR"
+      ln -sfn "$_PROJECTS_DIR" "$WORKSPACE/projects"
+      echo "  Linked projects/ → $_PROJECTS_DIR"
     fi
   else
-    echo "  ⚠ ATLAS_PROJECTS_DIR=$ATLAS_PROJECTS_DIR does not exist"
+    echo "  ⚠ ${_PROJECTS_DIR_VAR}=$_PROJECTS_DIR does not exist"
   fi
 fi
 
@@ -232,8 +245,8 @@ for f in "$WORKSPACE/memory/"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
   echo "  Migrated journal: $(basename $f)"
 done
 
-# Migrate stale MCP system.json (inbox-mcp → atlas-mcp rename)
-MCP_SYS="$WORKSPACE/.atlas-mcp/system.json"
+# Migrate stale MCP system.json (inbox-mcp → <appname>-mcp rename)
+MCP_SYS="$WORKSPACE/$MCP_CONFIG_DIR/system.json"
 if [ -f "$MCP_SYS" ] && grep -q "inbox-mcp" "$MCP_SYS" 2>/dev/null; then
   rm -f "$MCP_SYS"
   echo "  Removed stale MCP system.json (inbox-mcp reference)"
@@ -287,7 +300,19 @@ fi
 
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
-DB="$WORKSPACE/.index/atlas.db"
+DB="$WORKSPACE/.index/$DB_FILENAME"
+
+# One-time migration: support renamed databases from forks
+OLD_DB="$WORKSPACE/.index/atlas.db"
+NEW_DB="$WORKSPACE/.index/$DB_FILENAME"
+if [ "$DB_FILENAME" != "atlas.db" ] && [ -f "$OLD_DB" ] && [ ! -f "$NEW_DB" ]; then
+  echo "  Migrating atlas.db → $DB_FILENAME"
+  mv "$OLD_DB" "$NEW_DB"
+  [ -f "${OLD_DB}-wal" ] && mv "${OLD_DB}-wal" "${NEW_DB}-wal"
+  [ -f "${OLD_DB}-shm" ] && mv "${OLD_DB}-shm" "${NEW_DB}-shm"
+  echo "  DB migration complete"
+fi
+
 FIRST_DB=false
 if [ ! -f "$DB" ]; then
   FIRST_DB=true
@@ -400,8 +425,8 @@ sleep 1
 supervisorctl start web-ui || true
 
 # Check pause state before starting cron
-if [ -f "$WORKSPACE/.atlas-paused" ]; then
-  echo "  ⚠ Atlas is PAUSED — skipping supercronic. Use API POST /api/v1/control/resume to unpause."
+if [ -f "$WORKSPACE/$PAUSED_MARKER" ]; then
+  echo "  ⚠ $APP_NAME is PAUSED — skipping supercronic. Use API POST /api/v1/control/resume to unpause."
 else
   supervisorctl start supercronic || true
 fi

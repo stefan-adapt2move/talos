@@ -27,6 +27,7 @@ import { join, dirname } from "path";
 import yaml from "js-yaml";
 import { resolveConfig } from "../lib/config.ts";
 import { openDb as openSharedDb } from "../lib/db.ts";
+import { dbFilename, mpcConfigDir, appNameLower, pausedMarker, envPrefix } from "../lib/app-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,7 +73,7 @@ export type UsageReportingConfig = {
 const HOME = process.env.HOME ?? "/home/agent";
 const APP_DIR = "/atlas/app";
 const PROMPT_DIR = `${APP_DIR}/prompts`;
-const DB_PATH = `${HOME}/.index/atlas.db`;
+const DB_PATH = `${HOME}/.index/${dbFilename}`;
 const CLAUDE_JSON = `${HOME}/.claude.json`;
 const WORKSPACE = HOME;
 
@@ -360,9 +361,9 @@ export function buildSystemPrompt(channel: string, options?: {
   }
 
   // Prompt extensions — deployments can drop additional .md files into a
-  // directory referenced by ATLAS_PROMPT_EXTENSIONS_DIR to inject extra
+  // directory referenced by <PREFIX>_PROMPT_EXTENSIONS_DIR to inject extra
   // system prompt sections.
-  const extensionsDir = process.env.ATLAS_PROMPT_EXTENSIONS_DIR;
+  const extensionsDir = process.env[`${envPrefix}_PROMPT_EXTENSIONS_DIR`];
   if (extensionsDir) {
     try {
       const files = readdirSync(extensionsDir)
@@ -405,7 +406,7 @@ export function resolveModel(
 /**
  * Returns the MCP servers config object for the query() call.
  * Merges system servers (work) with user servers from:
- *   1. ~/.atlas-mcp/user.json (Atlas-managed user config)
+ *   1. ~/.<appname>-mcp/user.json (app-managed user config)
  *   2. ~/.mcp.json (standard Claude MCP config)
  * Only stdio-based servers are included (URL-based cause silent exit issues with --mcp-config).
  */
@@ -413,13 +414,13 @@ export function getMcpServers(): Record<string, Record<string, unknown>> {
   const servers: Record<string, Record<string, unknown>> = {
     work: {
       command: "bun",
-      args: ["run", "/atlas/app/atlas-mcp/index.ts"],
+      args: ["run", `/atlas/app/${appNameLower}-mcp/index.ts`],
     },
   };
 
   // Load user MCP servers from config files
   const userConfigPaths = [
-    `${HOME}/.atlas-mcp/user.json`,
+    `${HOME}/${mpcConfigDir}/user.json`,
     `${HOME}/.mcp.json`,
   ];
 
@@ -838,8 +839,8 @@ export async function runDirect(
   const mcpServers = getMcpServers();
 
   // --- Set environment variables ---
-  process.env.ATLAS_TRIGGER = triggerName;
-  process.env.ATLAS_TRIGGER_CHANNEL = channel;
+  process.env[`${envPrefix}_TRIGGER`] = triggerName;
+  process.env[`${envPrefix}_TRIGGER_CHANNEL`] = channel;
   process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
   delete process.env.CLAUDECODE;
 
@@ -904,9 +905,9 @@ export async function runDirect(
 // ---------------------------------------------------------------------------
 
 export async function main(): Promise<void> {
-  // --- Pause guard: skip execution if Atlas is paused ---
-  if (existsSync(join(HOME, ".atlas-paused"))) {
-    console.log(`[${new Date().toISOString()}] Atlas is paused, skipping trigger execution`);
+  // --- Pause guard: skip execution if agent is paused ---
+  if (existsSync(join(HOME, pausedMarker))) {
+    console.log(`[${new Date().toISOString()}] Agent is paused, skipping trigger execution`);
     process.exit(0);
   }
 
@@ -921,7 +922,7 @@ export async function main(): Promise<void> {
     }
 
     let channel = "internal";
-    let modelKey = process.env.ATLAS_CRON === "1" ? "cron" : "trigger";
+    let modelKey = process.env[`${envPrefix}_CRON`] === "1" ? "cron" : "trigger";
     let resumeId: string | undefined;
 
     for (let i = 2; i < args.length; i++) {
@@ -1202,16 +1203,16 @@ export async function main(): Promise<void> {
   const systemPrompt = buildSystemPrompt(channel);
 
   // --- Resolve model ---
-  const modelKey = process.env.ATLAS_CRON === "1" ? "cron" : "trigger";
+  const modelKey = process.env[`${envPrefix}_CRON`] === "1" ? "cron" : "trigger";
   const model = resolveModel(`${HOME}/config.yml`, modelKey);
 
   // --- MCP servers ---
   const mcpServers = getMcpServers();
 
   // --- Set environment variables ---
-  process.env.ATLAS_TRIGGER = triggerName;
-  process.env.ATLAS_TRIGGER_CHANNEL = channel;
-  process.env.ATLAS_TRIGGER_SESSION_KEY = sessionKey;
+  process.env[`${envPrefix}_TRIGGER`] = triggerName;
+  process.env[`${envPrefix}_TRIGGER_CHANNEL`] = channel;
+  process.env[`${envPrefix}_TRIGGER_SESSION_KEY`] = sessionKey;
   process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
   delete process.env.CLAUDECODE; // avoid nested-session detection
 

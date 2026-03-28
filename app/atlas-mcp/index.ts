@@ -3,9 +3,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { getDb } from "./db";
 import { acquirePathLock, releasePathLock, getActiveLocks } from "./locks";
+import { envPrefix } from "../lib/app-name";
 
 // --- Session context from environment ---
-const ATLAS_TRIGGER = process.env.ATLAS_TRIGGER || "";
+// Use dynamic env var name based on APP_NAME (e.g. ATLAS_TRIGGER, TALOS_TRIGGER, etc.)
+const ATLAS_TRIGGER = process.env[`${envPrefix}_TRIGGER`] || "";
 const IS_TRIGGER = !!ATLAS_TRIGGER;
 
 /** JSON MCP response helper */
