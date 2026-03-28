@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Geocode an address using Mapbox API. Returns JSON with lat/lng.
+
+Usage: geocode "Marienplatz 1, 80331 Muenchen"
+       geocode "Stuttgart Hbf" --country DE
+
+Requires MAPBOX_TOKEN env var or ~/secrets/mapbox-token file.
+"""
+
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+
+MAPBOX_TOKEN_FILE = os.path.expanduser("~/secrets/mapbox-token")
+
+def get_token():
+    token = os.environ.get("MAPBOX_TOKEN")
+    if token:
+        return token.strip()
+    return open(MAPBOX_TOKEN_FILE).read().strip()
+
+def geocode(query: str, country: str = "DE") -> dict | None:
+    token = get_token()
+    encoded = urllib.parse.quote(query)
+    url = (
+        f"https://api.mapbox.com/geocoding/v5/mapbox.places/{encoded}.json"
+        f"?access_token={token}&limit=1&country={country}"
+    )
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read())
+
+    features = data.get("features", [])
+    if not features:
+        return None
+
+    f = features[0]
+    return {
+        "lat": round(f["center"][1], 6),
+        "lng": round(f["center"][0], 6),
+        "name": f.get("place_name", query),
+    }
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Geocode an address via Mapbox")
+    parser.add_argument("query", help="Address or place name to geocode")
+    parser.add_argument("--country", default="DE", help="Country code (default: DE)")
+    args = parser.parse_args()
+
+    result = geocode(args.query, args.country)
+    if result:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(json.dumps({"error": "No results found"}))
+        sys.exit(1)

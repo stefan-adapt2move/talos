@@ -1,0 +1,7 @@
+#!/bin/bash
+export PYTHONUNBUFFERED=1
+export TELEGRAM_BOT_TOKEN="${ANTON_BOT_TOKEN:?ANTON_BOT_TOKEN env var required}"
+export TELEGRAM_TRIGGER_NAME=anton-chat
+export TELEGRAM_GROUP_MENTION_FILTER="@Anton_der_ameisenbaer_bot"
+export TELEGRAM_WHITELIST="${ANTON_WHITELIST:-[]}"
+exec python3 -u /atlas/app/integrations/telegram/telegram-addon.py "$@"
