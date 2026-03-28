@@ -33,8 +33,7 @@ export AGENT_NAME="${AGENT_NAME:-$APP_NAME}"
 
 # Drop to agent user and start supervisord
 # Pass PATH explicitly — sudo env_reset strips the Dockerfile ENV PATH otherwise
-exec sudo -u agent \
-  PATH="/atlas/app/bin:/home/agent/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-  HOME="/home/agent" \
-  AGENT_NAME="$AGENT_NAME" \
-  /usr/bin/supervisord -c /etc/supervisor/conf.d/atlas.conf
+# Pass all env vars through (-E preserves environment) with explicit PATH and HOME
+export PATH="/atlas/app/bin:/home/agent/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export HOME="/home/agent"
+exec sudo -E -u agent /usr/bin/supervisord -c /etc/supervisor/conf.d/atlas.conf
