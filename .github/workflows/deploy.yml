@@ -1,0 +1,30 @@
+name: Deploy Talos
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy to Hetzner
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 12m
+          script: |
+            cd /opt/talos
+            git remote set-url origin https://github.com/stefan-adapt2move/talos.git || \
+              git remote add origin https://github.com/stefan-adapt2move/talos.git
+            git stash --include-untracked || true
+            git fetch origin master
+            git checkout master
+            git reset --hard origin/master
+            docker compose build
+            docker compose up -d
+            sleep 15
+            docker compose exec -T talos supervisorctl status || true
