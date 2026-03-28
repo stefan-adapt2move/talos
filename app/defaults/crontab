@@ -10,3 +10,11 @@
 # Watchdog: detect and kill stuck trigger-runner processes (>30min)
 */5 * * * *  /atlas/app/scripts/watchdog-triggers.sh 2>/dev/null
 
+# --- A2M-specific ---
+
+# Anton calendar reminders (every minute)
+* * * * *  /atlas/app/scripts/anton-reminders.py >> /atlas/logs/anton-reminders.log 2>&1
+
+# Daemon health checks (every 5 minutes)
+*/5 * * * *  /atlas/app/scripts/check-daemon-health.sh >> /atlas/logs/daemon-health.log 2>&1
+
