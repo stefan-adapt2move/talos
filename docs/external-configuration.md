@@ -6,6 +6,32 @@ Atlas can be fully configured from outside via three complementary mechanisms:
 2. **REST API** — Runtime configuration via HTTP endpoints
 3. **File Injection** — Pre-populate data via Docker volume mounts
 
+---
+
+## Application Name (`APP_NAME`)
+
+Set the `APP_NAME` environment variable to give your fork its own branding. The default is `"Atlas"`.
+
+| What changes | Default (Atlas) | Example (Talos) |
+|---|---|---|
+| Database filename | `atlas.db` | `talos.db` |
+| MCP config directory | `.atlas-mcp/` | `.talos-mcp/` |
+| Inject directory | `.atlas-inject/` | `.talos-inject/` |
+| Runtime config file | `.atlas-runtime-config.json` | `.talos-runtime-config.json` |
+| Paused marker file | `.atlas-paused` | `.talos-paused` |
+| Environment var prefix | `ATLAS_*` | `TALOS_*` |
+
+**Migration**: If you rename an existing deployment, the old `atlas.db` is automatically migrated to the new filename on startup (if the new file doesn't already exist).
+
+```yaml
+# docker-compose.yml
+environment:
+  - APP_NAME=Talos         # Use "Talos" branding
+  - TALOS_MODEL_TRIGGER=opus  # Now uses TALOS_ prefix
+```
+
+---
+
 ## Configuration Resolution Order
 
 Values are resolved with the following priority (highest wins):
@@ -14,8 +40,8 @@ Values are resolved with the following priority (highest wins):
 ENV variables  >  Runtime config  >  config.yml  >  Built-in defaults
 ```
 
-- **ENV variables**: `ATLAS_*` prefixed, set in docker-compose or orchestrator
-- **Runtime config**: `$HOME/.atlas-runtime-config.json`, set via API
+- **ENV variables**: `<PREFIX>_*` prefixed (e.g. `ATLAS_*` by default), set in docker-compose or orchestrator
+- **Runtime config**: `$HOME/.<appname>-runtime-config.json`, set via API
 - **config.yml**: `$HOME/config.yml`, edited manually or via web UI
 - **Defaults**: Built into the Atlas image
 
@@ -23,7 +49,7 @@ ENV variables  >  Runtime config  >  config.yml  >  Built-in defaults
 
 ## Environment Variables
 
-All config.yml values can be overridden via `ATLAS_*` environment variables.
+All config.yml values can be overridden via `<PREFIX>_*` environment variables (e.g. `ATLAS_*` by default, or `TALOS_*` when `APP_NAME=Talos`).
 
 ### Core
 
@@ -204,9 +230,9 @@ curl -s -X POST http://localhost:8080/api/v1/triggers/daily-cleanup/run
 
 ---
 
-## File Injection (`.atlas-inject/`)
+## File Injection (`.<appname>-inject/`)
 
-For Docker-based deployments, you can pre-populate the agent's workspace by mounting an injection directory. Files in `.atlas-inject/` are processed once on first boot.
+For Docker-based deployments, you can pre-populate the agent's workspace by mounting an injection directory. Files in `.<appname>-inject/` (e.g. `.atlas-inject/` by default) are processed once on first boot.
 
 ### Directory Structure
 
@@ -214,7 +240,7 @@ For Docker-based deployments, you can pre-populate the agent's workspace by moun
 .atlas-inject/
 ├── identity.md              # → copied to IDENTITY.md
 ├── soul.md                  # → copied to SOUL.md
-├── config-overrides.json    # → copied to .atlas-runtime-config.json
+├── config-overrides.json    # → copied to .<appname>-runtime-config.json
 └── memory/                  # → merged into memory/
     ├── MEMORY.md
     └── projects/
@@ -238,13 +264,13 @@ services:
 
 ### How It Works
 
-1. On container startup, `init.sh` checks for `$HOME/.atlas-inject/`
-2. If the directory exists and `$HOME/.atlas-inject/.done` does NOT exist:
+1. On container startup, `init.sh` checks for `$HOME/.<appname>-inject/`
+2. If the directory exists and `$HOME/.<appname>-inject/.done` does NOT exist:
    - Copies `identity.md` → `IDENTITY.md`
    - Copies `soul.md` → `SOUL.md`
    - Merges `memory/*` into `memory/`
-   - Copies `config-overrides.json` → `.atlas-runtime-config.json`
-3. Creates `.atlas-inject/.done` marker to prevent re-injection
+   - Copies `config-overrides.json` → `.<appname>-runtime-config.json`
+3. Creates `.<appname>-inject/.done` marker to prevent re-injection
 4. Subsequent restarts skip injection
 
 ---

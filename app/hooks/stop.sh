@@ -3,7 +3,10 @@
 # Completion check is handled by the prompt hook in settings.json (sonnet model)
 set -euo pipefail
 
-DB="$HOME/.index/atlas.db"
+APP_NAME="${APP_NAME:-Atlas}"
+APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+APP_NAME_UPPER=$(echo "$APP_NAME" | tr '[:lower:]' '[:upper:]')
+DB="$HOME/.index/${APP_NAME_LOWER}.db"
 
 # --- 1. Release path locks held by this session's PID ---
 if [ -f "$DB" ]; then
@@ -14,7 +17,10 @@ if [ -f "$DB" ]; then
 fi
 
 # --- 2. Trigger sessions: remind to write a journal if today's entry doesn't exist ---
-if [ -n "${ATLAS_TRIGGER:-}" ]; then
+# Check <APP_NAME_UPPER>_TRIGGER env var (e.g. ATLAS_TRIGGER, TALOS_TRIGGER, etc.)
+_TRIGGER_VAR="${APP_NAME_UPPER}_TRIGGER"
+_TRIGGER_VAL="${!_TRIGGER_VAR:-}"
+if [ -n "$_TRIGGER_VAL" ]; then
   TODAY=$(date +%Y-%m-%d)
   JOURNAL_DIR="$HOME/memory/journal"
   if [ -d "$JOURNAL_DIR" ] && ls "$JOURNAL_DIR/${TODAY}"*.md 1>/dev/null 2>&1; then

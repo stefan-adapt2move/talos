@@ -7,6 +7,14 @@ set -euo pipefail
 TODAY=$(date +%Y-%m-%d)
 PROMPT_DIR="/atlas/app/prompts"
 
+# Resolve trigger env vars dynamically based on APP_NAME
+APP_NAME="${APP_NAME:-Atlas}"
+APP_NAME_UPPER=$(echo "$APP_NAME" | tr '[:lower:]' '[:upper:]')
+_TRIGGER_VAR="${APP_NAME_UPPER}_TRIGGER"
+_TRIGGER_CHANNEL_VAR="${APP_NAME_UPPER}_TRIGGER_CHANNEL"
+_CURRENT_TRIGGER="${!_TRIGGER_VAR:-}"
+_CURRENT_CHANNEL="${!_TRIGGER_CHANNEL_VAR:-internal}"
+
 # Helper: resolve channel-specific template with fallback
 resolve_template() {
   local suffix="$1"
@@ -19,9 +27,9 @@ resolve_template() {
 }
 
 # --- Trigger session: channel-specific compaction ---
-if [ -n "${ATLAS_TRIGGER:-}" ]; then
-  CHANNEL="${ATLAS_TRIGGER_CHANNEL:-internal}"
-  TRIGGER_NAME="$ATLAS_TRIGGER"
+if [ -n "$_CURRENT_TRIGGER" ]; then
+  CHANNEL="${_CURRENT_CHANNEL}"
+  TRIGGER_NAME="$_CURRENT_TRIGGER"
 
   # Phase 1: Pre-compaction — save state to memory (be thorough)
   PRE_COMPACT=$(resolve_template "pre-compact")

@@ -10,6 +10,10 @@ services:
       - ./logs:/atlas/logs
     environment:
       - TZ=Europe/Berlin
+      # --- Application Name ---
+      # Set APP_NAME to rebrand the agent (affects DB filename, config dirs, env prefix).
+      # Default is "Atlas". Example: APP_NAME=Talos → DB is "talos.db", env prefix is "TALOS_".
+      # - APP_NAME=Atlas
       # --- Core ---
       # - ATLAS_AGENT_NAME=Atlas          # Display name (alias: AGENT_NAME)
       # - ATLAS_AGENT_EMAIL=              # Agent email address

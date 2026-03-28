@@ -17,9 +17,10 @@ import { getDb } from "../atlas-mcp/db";
 import { apiKeyAuth } from "../lib/api-auth";
 import { resolveConfig, redactConfig, getConfigSources } from "../lib/config";
 import { pauseAtlas, resumeAtlas, stopAllSessions, getControlStatus, isAtlasPaused } from "../lib/kill-switch";
+import { appName, dbFilename, runtimeConfigFile } from "../lib/app-name";
 
 // --- Config ---
-const AGENT_NAME = process.env.AGENT_NAME || "Atlas";
+const AGENT_NAME = process.env.AGENT_NAME || appName;
 const WS = process.env.HOME!;
 const MEMORY = `${WS}/memory`;
 const IDENTITY = `${WS}/IDENTITY.md`;
@@ -1378,7 +1379,7 @@ api.get("/config/:section", (c) => {
 
 api.patch("/config", async (c) => {
   const body = await c.req.json();
-  const runtimePath = join(WS, ".atlas-runtime-config.json");
+  const runtimePath = join(WS, runtimeConfigFile);
 
   // Read existing runtime config
   let existing: Record<string, any> = {};

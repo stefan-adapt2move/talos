@@ -6,6 +6,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { resolveConfig, expandModelName } from "../lib/config.ts";
+import { envPrefix, appNameLower } from "../lib/app-name.ts";
 
 const HOME = process.env.HOME!;
 const SETTINGS_PATH = HOME + "/.claude/settings.json";
@@ -20,10 +21,10 @@ const hooksModel = expandModelName(config.models.hooks);
 
 // Write failure handling env file
 const failureEnvContent = [
-  `ATLAS_BACKOFF_INITIAL=${config.failure_handling.backoff_initial_seconds}`,
-  `ATLAS_BACKOFF_MAX=${config.failure_handling.backoff_max_seconds}`,
-  `ATLAS_NOTIFY_THRESHOLD_MINUTES=${config.failure_handling.notification_threshold_minutes}`,
-  `ATLAS_NOTIFY_COMMAND=${JSON.stringify(config.failure_handling.notification_command)}`,
+  `${envPrefix}_BACKOFF_INITIAL=${config.failure_handling.backoff_initial_seconds}`,
+  `${envPrefix}_BACKOFF_MAX=${config.failure_handling.backoff_max_seconds}`,
+  `${envPrefix}_NOTIFY_THRESHOLD_MINUTES=${config.failure_handling.notification_threshold_minutes}`,
+  `${envPrefix}_NOTIFY_COMMAND=${JSON.stringify(config.failure_handling.notification_command)}`,
   "",
 ].join("\n");
 writeFileSync(HOME + "/.failure-env", failureEnvContent);
@@ -151,14 +152,14 @@ const settings: Record<string, unknown> = {
 mkdirSync(HOME + "/.claude", { recursive: true });
 writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
 
-// Generate trigger MCP config: base .mcp.json + atlas-mcp
+// Generate trigger MCP config: base .mcp.json + <appname>-mcp
 const MCP_BASE_PATH = "/atlas/app/.mcp.json";
 const MCP_TRIGGER_PATH = HOME + "/.mcp-trigger.json";
 try {
   const baseMcp = JSON.parse(readFileSync(MCP_BASE_PATH, "utf-8"));
   baseMcp.mcpServers.work = {
     command: "bun",
-    args: ["run", "/atlas/app/atlas-mcp/index.ts"],
+    args: ["run", `/atlas/app/${appNameLower}-mcp/index.ts`],
   };
   writeFileSync(MCP_TRIGGER_PATH, JSON.stringify(baseMcp, null, 2) + "\n");
   console.log("Trigger MCP config generated: " + MCP_TRIGGER_PATH);

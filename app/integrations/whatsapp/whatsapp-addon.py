@@ -30,8 +30,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
+APP_NAME = os.environ.get("APP_NAME", "Atlas").lower()
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+ATLAS_DB_PATH = os.environ["HOME"] + f"/.index/{APP_NAME}.db"
 WHATSAPP_DB_DIR = os.environ["HOME"] + "/.index/whatsapp"
 WHATSAPP_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/whatsapp/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
@@ -512,9 +513,10 @@ def _load_farewell_message():
 def _resume_with_farewell(session_id, sender, farewell):
     """Resume an inactive session with a farewell message so it can save to memory."""
     env = os.environ.copy()
-    env["ATLAS_TRIGGER"] = TRIGGER_NAME
-    env["ATLAS_TRIGGER_CHANNEL"] = "whatsapp"
-    env["ATLAS_TRIGGER_SESSION_KEY"] = sender
+    _prefix = os.environ.get("APP_NAME", "Atlas").upper()
+    env[f"{_prefix}_TRIGGER"] = TRIGGER_NAME
+    env[f"{_prefix}_TRIGGER_CHANNEL"] = "whatsapp"
+    env[f"{_prefix}_TRIGGER_SESSION_KEY"] = sender
     env.pop("CLAUDECODE", None)
     subprocess.run(
         ["/atlas/app/triggers/trigger-runner",

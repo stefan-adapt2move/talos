@@ -28,8 +28,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
+APP_NAME = os.environ.get("APP_NAME", "Atlas").lower()
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+ATLAS_DB_PATH = os.environ["HOME"] + f"/.index/{APP_NAME}.db"
 TELEGRAM_DB_DIR = os.environ["HOME"] + "/.index/telegram"
 TELEGRAM_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/telegram/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"

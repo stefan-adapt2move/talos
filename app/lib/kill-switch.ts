@@ -1,8 +1,8 @@
 /**
- * Kill Switch — Pause, Resume, and Stop Atlas sessions.
+ * Kill Switch — Pause, Resume, and Stop agent sessions.
  *
  * State is tracked via:
- *   1. File marker: $HOME/.atlas-paused (checked by trigger.sh and trigger-runner.ts)
+ *   1. File marker: $HOME/.<appname>-paused (checked by trigger.sh and trigger-runner.ts)
  *   2. Database: system_state table (for API queries and persistence)
  *
  * The file marker is the authoritative source — it persists across container restarts
@@ -12,8 +12,9 @@
 import { existsSync, writeFileSync, unlinkSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Database } from "bun:sqlite";
+import { appName, pausedMarker } from "./app-name";
 
-const PAUSED_MARKER = ".atlas-paused";
+const PAUSED_MARKER = pausedMarker;
 
 // ---------------------------------------------------------------------------
 // State helpers
@@ -42,16 +43,16 @@ function getDbState(db: Database, key: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Check if Atlas is currently paused (file-based check, fast).
+ * Check if the agent is currently paused (file-based check, fast).
  */
 export function isAtlasPaused(home: string): boolean {
   return existsSync(markerPath(home));
 }
 
 /**
- * Pause Atlas: disable all trigger execution.
+ * Pause the agent: disable all trigger execution.
  *
- * - Creates .atlas-paused marker file
+ * - Creates .<appname>-paused marker file
  * - Records state in DB
  * - Stops supercronic (cron execution)
  *
@@ -74,9 +75,9 @@ export function pauseAtlas(db: Database, home: string): void {
 }
 
 /**
- * Resume Atlas: re-enable trigger execution.
+ * Resume the agent: re-enable trigger execution.
  *
- * - Removes .atlas-paused marker file
+ * - Removes .<appname>-paused marker file
  * - Updates DB state
  * - Restarts supercronic
  * - Re-syncs crontab

@@ -2,8 +2,8 @@
  * Unified Configuration Resolution for Atlas
  *
  * Resolution order (highest priority wins):
- *   1. Environment variables (ATLAS_* prefix)
- *   2. Runtime config overrides ($HOME/.atlas-runtime-config.json)
+ *   1. Environment variables (APP_NAME_* prefix, e.g. ATLAS_* by default)
+ *   2. Runtime config overrides ($HOME/.<appname>-runtime-config.json)
  *   3. config.yml ($HOME/config.yml)
  *   4. Built-in defaults
  *
@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import yaml from "js-yaml";
+import { appName, envPrefix, runtimeConfigFile } from "./app-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,7 +121,7 @@ export type ConfigSource = "env" | "runtime" | "file" | "default";
 // ---------------------------------------------------------------------------
 
 const DEFAULTS: AtlasConfig = {
-  agent: { name: "Atlas", email: "" },
+  agent: { name: appName, email: "" },
   models: { main: "sonnet", trigger: "opus", cron: "sonnet", subagent_review: "sonnet", hooks: "haiku" },
   memory: { load_memory_md: true, load_journal_days: 7 },
   signal: { number: "", history_turns: 20, whitelist: [] },
@@ -172,46 +173,58 @@ type EnvMapping = {
   type: "string" | "number" | "boolean" | "string[]";
 };
 
-const ENV_MAPPINGS: EnvMapping[] = [
-  { env: "ATLAS_AGENT_NAME", aliases: ["AGENT_NAME"], path: "agent.name", type: "string" },
-  { env: "ATLAS_AGENT_EMAIL", path: "agent.email", type: "string" },
-  { env: "ATLAS_MODEL_MAIN", path: "models.main", type: "string" },
-  { env: "ATLAS_MODEL_TRIGGER", path: "models.trigger", type: "string" },
-  { env: "ATLAS_MODEL_CRON", path: "models.cron", type: "string" },
-  { env: "ATLAS_MODEL_SUBAGENT_REVIEW", path: "models.subagent_review", type: "string" },
-  { env: "ATLAS_MODEL_HOOKS", path: "models.hooks", type: "string" },
-  { env: "ATLAS_MEMORY_LOAD_MEMORY_MD", path: "memory.load_memory_md", type: "boolean" },
-  { env: "ATLAS_MEMORY_LOAD_JOURNAL_DAYS", path: "memory.load_journal_days", type: "number" },
-  { env: "ATLAS_SIGNAL_NUMBER", aliases: ["SIGNAL_NUMBER"], path: "signal.number", type: "string" },
-  { env: "ATLAS_SIGNAL_HISTORY_TURNS", path: "signal.history_turns", type: "number" },
-  { env: "ATLAS_SIGNAL_WHITELIST", path: "signal.whitelist", type: "string[]" },
-  { env: "ATLAS_EMAIL_IMAP_HOST", aliases: ["EMAIL_IMAP_HOST"], path: "email.imap_host", type: "string" },
-  { env: "ATLAS_EMAIL_IMAP_PORT", aliases: ["EMAIL_IMAP_PORT"], path: "email.imap_port", type: "number" },
-  { env: "ATLAS_EMAIL_SMTP_HOST", aliases: ["EMAIL_SMTP_HOST"], path: "email.smtp_host", type: "string" },
-  { env: "ATLAS_EMAIL_SMTP_PORT", aliases: ["EMAIL_SMTP_PORT"], path: "email.smtp_port", type: "number" },
-  { env: "ATLAS_EMAIL_USERNAME", aliases: ["EMAIL_USERNAME"], path: "email.username", type: "string" },
-  { env: "ATLAS_EMAIL_PASSWORD_FILE", path: "email.password_file", type: "string" },
-  { env: "ATLAS_EMAIL_FOLDER", path: "email.folder", type: "string" },
-  { env: "ATLAS_EMAIL_WHITELIST", path: "email.whitelist", type: "string[]" },
-  { env: "ATLAS_EMAIL_MARK_READ", path: "email.mark_read", type: "boolean" },
-  { env: "ATLAS_DAILY_CLEANUP_ENABLED", path: "daily_cleanup.enabled", type: "boolean" },
-  { env: "ATLAS_DAILY_CLEANUP_RETENTION_DAYS", path: "daily_cleanup.retention_days", type: "number" },
-  { env: "ATLAS_DAILY_CLEANUP_METRICS_RETENTION_DAYS", path: "daily_cleanup.metrics_retention_days", type: "number" },
-  { env: "ATLAS_WEB_UI_PORT", path: "web_ui.port", type: "number" },
-  { env: "ATLAS_WEB_UI_BIND", path: "web_ui.bind", type: "string" },
-  { env: "ATLAS_FAILURE_NOTIFICATION_COMMAND", path: "failure_handling.notification_command", type: "string" },
-  { env: "ATLAS_FAILURE_BACKOFF_INITIAL", path: "failure_handling.backoff_initial_seconds", type: "number" },
-  { env: "ATLAS_FAILURE_BACKOFF_MAX", path: "failure_handling.backoff_max_seconds", type: "number" },
-  { env: "ATLAS_FAILURE_NOTIFICATION_THRESHOLD", path: "failure_handling.notification_threshold_minutes", type: "number" },
-  { env: "ATLAS_STT_ENABLED", path: "stt.enabled", type: "boolean" },
-  { env: "ATLAS_STT_URL", aliases: ["STT_URL"], path: "stt.url", type: "string" },
-  { env: "ATLAS_WEBHOOK_RELAY_URL", path: "webhook.relay_url", type: "string" },
-  { env: "ATLAS_USAGE_ENABLED", path: "usage_reporting.enabled", type: "boolean" },
-  { env: "ATLAS_USAGE_WEBHOOK_URL", path: "usage_reporting.webhook_url", type: "string" },
-  { env: "ATLAS_USAGE_WEBHOOK_SECRET", path: "usage_reporting.webhook_secret", type: "string" },
-  { env: "ATLAS_USAGE_INCLUDE_TOKENS", path: "usage_reporting.include_tokens", type: "boolean" },
-  { env: "ATLAS_PROJECTS_DIR", path: "workspace.projects_dir", type: "string" },
-];
+// Build ENV_MAPPINGS dynamically so the prefix scales with APP_NAME.
+// e.g. APP_NAME=Talos → prefix becomes "TALOS_", so TALOS_AGENT_NAME etc.
+// The "ATLAS_" aliases are kept for backwards compatibility when APP_NAME != "Atlas".
+function buildEnvMappings(prefix: string): EnvMapping[] {
+  const p = prefix + "_";
+  // Alias the legacy ATLAS_ names when running under a different prefix
+  const atlasAlias = (suffix: string): string[] | undefined =>
+    prefix !== "ATLAS" ? [`ATLAS_${suffix}`] : undefined;
+
+  return [
+    { env: `${p}AGENT_NAME`, aliases: [...(atlasAlias("AGENT_NAME") ?? []), "AGENT_NAME"], path: "agent.name", type: "string" },
+    { env: `${p}AGENT_EMAIL`, aliases: atlasAlias("AGENT_EMAIL"), path: "agent.email", type: "string" },
+    { env: `${p}MODEL_MAIN`, aliases: atlasAlias("MODEL_MAIN"), path: "models.main", type: "string" },
+    { env: `${p}MODEL_TRIGGER`, aliases: atlasAlias("MODEL_TRIGGER"), path: "models.trigger", type: "string" },
+    { env: `${p}MODEL_CRON`, aliases: atlasAlias("MODEL_CRON"), path: "models.cron", type: "string" },
+    { env: `${p}MODEL_SUBAGENT_REVIEW`, aliases: atlasAlias("MODEL_SUBAGENT_REVIEW"), path: "models.subagent_review", type: "string" },
+    { env: `${p}MODEL_HOOKS`, aliases: atlasAlias("MODEL_HOOKS"), path: "models.hooks", type: "string" },
+    { env: `${p}MEMORY_LOAD_MEMORY_MD`, aliases: atlasAlias("MEMORY_LOAD_MEMORY_MD"), path: "memory.load_memory_md", type: "boolean" },
+    { env: `${p}MEMORY_LOAD_JOURNAL_DAYS`, aliases: atlasAlias("MEMORY_LOAD_JOURNAL_DAYS"), path: "memory.load_journal_days", type: "number" },
+    { env: `${p}SIGNAL_NUMBER`, aliases: [...(atlasAlias("SIGNAL_NUMBER") ?? []), "SIGNAL_NUMBER"], path: "signal.number", type: "string" },
+    { env: `${p}SIGNAL_HISTORY_TURNS`, aliases: atlasAlias("SIGNAL_HISTORY_TURNS"), path: "signal.history_turns", type: "number" },
+    { env: `${p}SIGNAL_WHITELIST`, aliases: atlasAlias("SIGNAL_WHITELIST"), path: "signal.whitelist", type: "string[]" },
+    { env: `${p}EMAIL_IMAP_HOST`, aliases: [...(atlasAlias("EMAIL_IMAP_HOST") ?? []), "EMAIL_IMAP_HOST"], path: "email.imap_host", type: "string" },
+    { env: `${p}EMAIL_IMAP_PORT`, aliases: [...(atlasAlias("EMAIL_IMAP_PORT") ?? []), "EMAIL_IMAP_PORT"], path: "email.imap_port", type: "number" },
+    { env: `${p}EMAIL_SMTP_HOST`, aliases: [...(atlasAlias("EMAIL_SMTP_HOST") ?? []), "EMAIL_SMTP_HOST"], path: "email.smtp_host", type: "string" },
+    { env: `${p}EMAIL_SMTP_PORT`, aliases: [...(atlasAlias("EMAIL_SMTP_PORT") ?? []), "EMAIL_SMTP_PORT"], path: "email.smtp_port", type: "number" },
+    { env: `${p}EMAIL_USERNAME`, aliases: [...(atlasAlias("EMAIL_USERNAME") ?? []), "EMAIL_USERNAME"], path: "email.username", type: "string" },
+    { env: `${p}EMAIL_PASSWORD_FILE`, aliases: atlasAlias("EMAIL_PASSWORD_FILE"), path: "email.password_file", type: "string" },
+    { env: `${p}EMAIL_FOLDER`, aliases: atlasAlias("EMAIL_FOLDER"), path: "email.folder", type: "string" },
+    { env: `${p}EMAIL_WHITELIST`, aliases: atlasAlias("EMAIL_WHITELIST"), path: "email.whitelist", type: "string[]" },
+    { env: `${p}EMAIL_MARK_READ`, aliases: atlasAlias("EMAIL_MARK_READ"), path: "email.mark_read", type: "boolean" },
+    { env: `${p}DAILY_CLEANUP_ENABLED`, aliases: atlasAlias("DAILY_CLEANUP_ENABLED"), path: "daily_cleanup.enabled", type: "boolean" },
+    { env: `${p}DAILY_CLEANUP_RETENTION_DAYS`, aliases: atlasAlias("DAILY_CLEANUP_RETENTION_DAYS"), path: "daily_cleanup.retention_days", type: "number" },
+    { env: `${p}DAILY_CLEANUP_METRICS_RETENTION_DAYS`, aliases: atlasAlias("DAILY_CLEANUP_METRICS_RETENTION_DAYS"), path: "daily_cleanup.metrics_retention_days", type: "number" },
+    { env: `${p}WEB_UI_PORT`, aliases: atlasAlias("WEB_UI_PORT"), path: "web_ui.port", type: "number" },
+    { env: `${p}WEB_UI_BIND`, aliases: atlasAlias("WEB_UI_BIND"), path: "web_ui.bind", type: "string" },
+    { env: `${p}FAILURE_NOTIFICATION_COMMAND`, aliases: atlasAlias("FAILURE_NOTIFICATION_COMMAND"), path: "failure_handling.notification_command", type: "string" },
+    { env: `${p}FAILURE_BACKOFF_INITIAL`, aliases: atlasAlias("FAILURE_BACKOFF_INITIAL"), path: "failure_handling.backoff_initial_seconds", type: "number" },
+    { env: `${p}FAILURE_BACKOFF_MAX`, aliases: atlasAlias("FAILURE_BACKOFF_MAX"), path: "failure_handling.backoff_max_seconds", type: "number" },
+    { env: `${p}FAILURE_NOTIFICATION_THRESHOLD`, aliases: atlasAlias("FAILURE_NOTIFICATION_THRESHOLD"), path: "failure_handling.notification_threshold_minutes", type: "number" },
+    { env: `${p}STT_ENABLED`, aliases: atlasAlias("STT_ENABLED"), path: "stt.enabled", type: "boolean" },
+    { env: `${p}STT_URL`, aliases: [...(atlasAlias("STT_URL") ?? []), "STT_URL"], path: "stt.url", type: "string" },
+    { env: `${p}WEBHOOK_RELAY_URL`, aliases: atlasAlias("WEBHOOK_RELAY_URL"), path: "webhook.relay_url", type: "string" },
+    { env: `${p}USAGE_ENABLED`, aliases: atlasAlias("USAGE_ENABLED"), path: "usage_reporting.enabled", type: "boolean" },
+    { env: `${p}USAGE_WEBHOOK_URL`, aliases: atlasAlias("USAGE_WEBHOOK_URL"), path: "usage_reporting.webhook_url", type: "string" },
+    { env: `${p}USAGE_WEBHOOK_SECRET`, aliases: atlasAlias("USAGE_WEBHOOK_SECRET"), path: "usage_reporting.webhook_secret", type: "string" },
+    { env: `${p}USAGE_INCLUDE_TOKENS`, aliases: atlasAlias("USAGE_INCLUDE_TOKENS"), path: "usage_reporting.include_tokens", type: "boolean" },
+    { env: `${p}PROJECTS_DIR`, aliases: atlasAlias("PROJECTS_DIR"), path: "workspace.projects_dir", type: "string" },
+  ] as EnvMapping[];
+}
+
+const ENV_MAPPINGS: EnvMapping[] = buildEnvMappings(envPrefix);
 
 // ---------------------------------------------------------------------------
 // Resolution helpers
@@ -295,7 +308,7 @@ export function getConfigSources(): Record<string, ConfigSource> {
 export function resolveConfig(home?: string): AtlasConfig {
   const homeDir = home ?? process.env.HOME ?? "/home/agent";
   const configPath = join(homeDir, "config.yml");
-  const runtimePath = join(homeDir, ".atlas-runtime-config.json");
+  const runtimePath = join(homeDir, runtimeConfigFile);
 
   // Start with defaults
   const config = deepClone(DEFAULTS);
