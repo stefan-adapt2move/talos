@@ -6,10 +6,6 @@ set -e
 # Fix ownership on home directory volume mount (may be root-owned from host)
 sudo chown -R agent:agent /home/agent
 
-# Fix runtime directories (tmpfs mounts reset ownership on container start)
-sudo chown -R root:agent /var/log/nginx /var/lib/nginx
-sudo chmod -R 775 /var/log/nginx /var/lib/nginx
-
 # Clean stale state from previous container run (new PID namespace = all stale)
 if [ -f "/home/agent/.index/atlas.db" ]; then
   sqlite3 "/home/agent/.index/atlas.db" "DELETE FROM path_locks;" 2>/dev/null || true
