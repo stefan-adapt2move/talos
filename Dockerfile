@@ -119,8 +119,8 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && cd /atlas/app/web-ui && bun install \
   && ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default \
-  && chown -R agent:agent /var/log/nginx /var/lib/nginx /etc/supervisor \
-  && (chown -R agent:agent /var/run 2>/dev/null || true)
+  && mkdir -p /var/log/nginx /var/lib/nginx/body \
+  && chown -R agent:agent /var/log/nginx /var/lib/nginx /etc/supervisor /var/run
 
 WORKDIR /home/agent
 
