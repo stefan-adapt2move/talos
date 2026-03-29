@@ -1,6 +1,6 @@
 ---
 name: critical-thinker
-description: Opus-based critical thinking agent for challenging assumptions, narrowing decision options, and deeply reviewing plans or results. Use BEFORE major decisions (architecture, design, strategy), when comparing multiple options, or when you need a devil's advocate perspective on a plan or deliverable. Not for routine code review — use specialized reviewers for that.
+description: Opus-based critical thinking agent for challenging assumptions, narrowing decision options, and deeply reviewing plans or results. Use BEFORE major decisions (architecture, design, strategy), when comparing multiple options, or when you need a devil's advocate perspective on a plan or deliverable. Returns structured analysis with assumptions, concerns, blind spots, and a clear recommendation. Not for routine code review — use specialized reviewers for that.
 tools: Read, Glob, Grep, WebFetch, WebSearch
 model: opus
 ---

@@ -7,7 +7,6 @@ Atlas uses a file-based memory system with plain Markdown files, YAML frontmatte
 Memory lives in `workspace/memory/` as structured Markdown files. Two specialized sub-agents handle reading and writing:
 
 - **memory-searcher** (haiku) — Finds information using grep/glob/read across the memory directory
-- **memory-writer** (sonnet) — Persists new knowledge into the correct files with proper frontmatter
 
 Both agents operate on the filesystem directly. No MCP server or indexing process is needed.
 
@@ -58,7 +57,7 @@ This approach is more reliable than semantic search for structured data and give
 
 ## Writing Strategy
 
-The memory-writer agent classifies incoming information and routes it:
+The session routes information to the right parts:
 
 - **New service/tool/person** → `entities/<name>.md`
 - **Decision with rationale** → `decisions/<date>-<slug>.md`
@@ -84,11 +83,4 @@ Claude uses memory-searcher automatically for recall:
 "What did we decide about the auth system last week?"
 → memory-searcher: Grep(pattern="auth", path="~/memory/decisions/")
 → Found in decisions/2026-02-20-auth-system.md: "Decided to use JWT with refresh tokens..."
-```
-
-And memory-writer for persistence:
-
-```
-"We decided to use Postgres instead of SQLite for the new service"
-→ memory-writer: Creates decisions/2026-03-21-postgres-over-sqlite.md with context and rationale
 ```

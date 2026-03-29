@@ -201,7 +201,7 @@ Claude has access to these tools via the inbox-mcp server:
 - `trigger_delete` — Remove trigger
 
 **Memory:**
-Memory is handled via specialized sub-agents (`memory-searcher`, `memory-writer`) that use grep, glob, and file reads directly — no external MCP server needed.
+Memory is handled through Markdown(+Frontmatter) and specialized a sub-agent (`memory-searcher`) that use grep, glob, and file reads directly — no external MCP server needed.
 
 See [docs/memory.md](docs/memory.md) for memory system and [docs/hooks.md](docs/hooks.md) for lifecycle hooks.
 

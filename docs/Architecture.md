@@ -61,10 +61,7 @@ See [Triggers.md](Triggers.md) for the full trigger lifecycle.
 
 ## Memory System
 
-Memory is stored as plain Markdown files in `~/memory/` with YAML frontmatter and `[[wikilinks]]` for cross-referencing. There is no indexing daemon — retrieval is done directly via grep, glob, and file reads through specialized sub-agents:
-
-- **memory-searcher** — Finds information using grep/glob patterns across the memory directory
-- **memory-writer** — Persists new knowledge into the correct memory files with proper structure
+Memory is stored as plain Markdown files in `~/memory/` with YAML frontmatter and `[[wikilinks]]` for cross-referencing. There is no indexing daemon — retrieval is done directly via grep, glob, and file reads through specialized sub-agents **memory-searcher** which finds information using grep/glob patterns across the memory directory.
 
 See [memory.md](memory.md) for the full memory system documentation.
 
