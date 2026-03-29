@@ -1,60 +1,40 @@
 ---
 name: dependencies
-description: How to install packages persistently in the container. Use when you need to install system packages, pip packages, or npm tools.
+description: Install system packages, Python libs, or JS/TS modules. Use when you need a tool or library that isn't pre-installed, or when the user asks to install something.
 ---
 
 # Installing Dependencies
 
-You run inside a Docker container. Packages installed at runtime are lost on container restart.
-To make installations persistent, use the `user-extensions.sh` script.
+You have **no root or sudo access**. Everything outside `~/` (`/home/agent/`) is lost on container restart. Use the tools below to install what you need.
 
-## Persistent Installation
+| What | How | Example |
+|------|-----|---------|
+| System packages | `nix-env -iA nixpkgs.<pkg>` | `nix-env -iA nixpkgs.imagemagick` |
+| Python packages | `pip install <pkg>` | `pip install requests` |
 
-Edit `~/user-extensions.sh` to add your install commands:
+Search for Nix packages: `nix-env -qaP | grep <name>` or https://search.nixos.org/packages
+
+Remove a Nix package: `nix-env -e <package>`
+
+## Survive Restarts
+
+Packages installed at runtime are lost on container restart. To make them persistent, add your install commands to `~/user-extensions.sh`:
 
 ```bash
 #!/bin/bash
-# Runs on every container start
-
-apt-get update && apt-get install -y signal-cli jq
-pip install some-package
-npm install -g some-tool
+nix-env -iA nixpkgs.imagemagick
+pip install requests
 ```
 
-This script runs during container init (Phase 7), before services start.
+This script runs automatically on every container start.
 
-## Runtime (Temporary) Installation
+## Gotchas
 
-For quick testing, install directly:
-```bash
-apt-get update && apt-get install -y <package>
-pip install <package>
-bun add <package>          # in the relevant project directory
-```
+- **Never use `apt-get` or `sudo`** — you don't have access. Use `nix-env` instead.
+- Nix package names can differ from apt (e.g. `nixpkgs.python3` not `python3-pip`). Search first.
+- First `nix-env -qaP` is slow (downloads index). Use the web search instead.
+- No Docker daemon available — you cannot run `docker` commands.
 
-These installs vanish on restart. If you confirm the package is needed, add it to `user-extensions.sh`.
+## Pre-installed
 
-## Bun Packages
-
-For JavaScript/TypeScript dependencies:
-- Project-local: `cd /some/project && bun add <package>`
-- The workspace itself uses Bun — `bun add` works for scripts you write
-
-## Python Packages
-
-```bash
-pip install <package>
-```
-
-## System Packages
-
-```bash
-apt-get update && apt-get install -y <package>
-```
-
-## Important
-
-- Always add persistent installs to `user-extensions.sh`, not just install them at runtime
-- Configuration files outside the persisted volumes (`/home/atlas/`) are lost on restart — e.g. changes to `/etc/`, `/opt/`, or other system paths. If you need persistent config changes, add the corresponding commands to `user-extensions.sh`
-- The container has no Docker daemon — you cannot run `docker` commands
-- Pre-installed: Bun, Node.js, Python, git, sqlite3, curl, jq
+Bun, Node.js, Python, git, sqlite3, curl, wget, jq, ripgrep, ffmpeg, pandoc, typst, chromium, browser (headless web CLI — see browser skill)
