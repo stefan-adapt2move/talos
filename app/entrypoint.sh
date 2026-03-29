@@ -4,7 +4,8 @@
 set -e
 
 # Fix ownership on home directory volume mount (may be root-owned from host)
-sudo chown -R agent:agent /home/agent
+# Uses CHOWN capability (granted in pod securityContext) — no sudo needed
+chown -R agent:agent /home/agent
 
 # Clean stale state from previous container run (new PID namespace = all stale)
 if [ -f "/home/agent/.index/atlas.db" ]; then
