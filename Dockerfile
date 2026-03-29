@@ -125,7 +125,8 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && mkdir -p /var/log/nginx /var/lib/nginx/body \
   && chown -R root:agent /var/log/nginx /var/lib/nginx \
   && chmod -R 775 /var/log/nginx /var/lib/nginx \
-  && chown -R root:agent /etc/supervisor && chmod -R 775 /etc/supervisor
+  && chown -R root:agent /etc/supervisor && chmod -R 775 /etc/supervisor \
+  && sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf
 
 WORKDIR /home/agent
 EXPOSE 8080
