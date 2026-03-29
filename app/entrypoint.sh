@@ -25,10 +25,21 @@ if [ -z "${AGENT_NAME:-}" ]; then
 fi
 export AGENT_NAME="${AGENT_NAME:-Atlas}"
 
+# Collect container env vars to forward to agent user.
+# sudo env_reset strips all env vars, so we rebuild the env explicitly.
+# Captures all app-relevant vars (ANTHROPIC_*, ATLAS_*, S3_*, etc.)
+# while excluding Kubernetes-injected service vars (noise).
+ENV_ARGS="PATH=/atlas/app/bin:/home/agent/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV_ARGS="$ENV_ARGS HOME=/home/agent"
+ENV_ARGS="$ENV_ARGS AGENT_NAME=$AGENT_NAME"
+while IFS='=' read -r key value; do
+  case "$key" in
+    ANTHROPIC_*|ATLAS_*|UNCLUTTER_*|S3_*|SIGNAL_*|TRIGGER_*|TZ|LANG|LC_*)
+      ENV_ARGS="$ENV_ARGS $key=$value" ;;
+  esac
+done < <(env)
+
 # Drop to agent user and start supervisord
-# Pass PATH explicitly — sudo env_reset strips the Dockerfile ENV PATH otherwise
-exec sudo -u agent \
-  PATH="/atlas/app/bin:/home/agent/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-  HOME="/home/agent" \
-  AGENT_NAME="$AGENT_NAME" \
+# shellcheck disable=SC2086
+exec sudo -u agent $ENV_ARGS \
   /usr/bin/supervisord -c /etc/supervisor/conf.d/atlas.conf
