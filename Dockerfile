@@ -123,7 +123,8 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default \
   && mkdir -p /var/log/nginx /var/lib/nginx/body \
-  && chown -R agent:agent /var/log/nginx /var/lib/nginx /etc/supervisor /var/run
+  && chown -R root:agent /var/log/nginx /var/lib/nginx /var/run \
+  && chmod -R 775 /var/log/nginx /var/lib/nginx /var/run
 
 WORKDIR /home/agent
 
