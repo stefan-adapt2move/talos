@@ -125,5 +125,8 @@ WORKDIR /home/agent
 
 EXPOSE 8080
 
-# Entrypoint runs as root to fix volume permissions, then drops to agent
+# Run as non-root agent user. sudo is available for privileged operations
+# (e.g. installing packages via user-extensions.sh, chown in entrypoint).
+USER agent
+
 ENTRYPOINT ["/atlas/app/entrypoint.sh"]
