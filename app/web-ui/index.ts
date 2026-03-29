@@ -357,11 +357,15 @@ function renderConversation(messages: ParsedMessage[]): string {
 // --- App ---
 const app = new Hono();
 
-// ============ HEALTH CHECK (no auth, no DB query) ============
+// ============ HEALTH CHECK ============
 app.get("/healthz", (c) => {
-  const dbPath = `${WS}/.index/atlas.db`;
-  const dbExists = existsSync(dbPath);
-  return c.json({ status: dbExists ? "ok" : "initializing", db: dbExists }, dbExists ? 200 : 503);
+  try {
+    const row = db.prepare("SELECT 1 AS ok").get() as { ok: number } | null;
+    if (row?.ok !== 1) throw new Error("unexpected query result");
+    return c.json({ status: "ok" }, 200);
+  } catch {
+    return c.json({ status: "error" }, 503);
+  }
 });
 
 // ============ DASHBOARD ============
