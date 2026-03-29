@@ -5,7 +5,12 @@
 set -e
 
 # Fix ownership on mounted volumes (may be root-owned from host mounts)
-sudo chown -R agent:agent /home/agent /atlas/logs
+sudo chown -R agent:agent /home/agent
+
+# /atlas/logs: root-owned, group-writable for agent.
+# Agent can write logs but cannot delete or tamper with them.
+sudo chown -R root:agent /atlas/logs
+sudo chmod -R 775 /atlas/logs
 
 # Fix runtime directories (tmpfs, reset on container start)
 sudo chown agent:agent /var/run

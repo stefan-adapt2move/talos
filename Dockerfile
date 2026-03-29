@@ -92,7 +92,8 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/triggers \
   /home/agent/secrets \
   /home/agent/helpers \
-  && chown -R agent:agent /atlas /home/agent \
+  && chown -R agent:agent /atlas/app /home/agent \
+  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs \
   && ln -s /home/agent /home/atlas
 
 # Copy application code (--chown avoids extra chown layer)
