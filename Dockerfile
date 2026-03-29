@@ -79,7 +79,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
-ENV SUPERVISOR_SERVER_URL=unix:///tmp/supervisor.sock
 
 # Create directory structure
 # /home/agent — agent-owned workspace (mounted as volume)
@@ -127,7 +126,8 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && chown -R root:agent /var/log/nginx /var/lib/nginx \
   && chmod -R 775 /var/log/nginx /var/lib/nginx \
   && chown -R root:agent /etc/supervisor && chmod -R 775 /etc/supervisor \
-  && sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf
+  && sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \
+  && ln -sf /etc/supervisor/conf.d/atlas.conf /etc/supervisor/supervisord.conf
 
 WORKDIR /home/agent
 EXPOSE 8080
