@@ -80,10 +80,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 
-# Create directory structure
-# /home/agent — agent-owned workspace (mounted as volume)
-# /atlas/app  — system code, root-owned (agent has read+execute only)
-# /atlas/logs — root:agent, group-writable (agent can write but not tamper)
+# Create directory structure (owned by agent from the start)
 RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/memory/projects \
   /home/agent/memory/journal \
@@ -95,18 +92,17 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/triggers \
   /home/agent/secrets \
   /home/agent/helpers \
-  && chown -R agent:agent /home/agent \
-  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs \
+  && chown -R agent:agent /atlas /home/agent \
   && ln -s /home/agent /home/atlas
 
-# Copy application code (root-owned — agent should not modify system code)
-COPY app/ /atlas/app/
-COPY .claude/settings.json /atlas/app/.claude/settings.json
-COPY supervisord.conf /etc/supervisor/conf.d/atlas.conf
-COPY app/nginx.conf /etc/nginx/sites-available/atlas
+# Copy application code (--chown avoids extra chown layer)
+COPY --chown=agent:agent app/ /atlas/app/
+COPY --chown=agent:agent .claude/settings.json /atlas/app/.claude/settings.json
+COPY --chown=agent:agent supervisord.conf /etc/supervisor/conf.d/atlas.conf
+COPY --chown=agent:agent app/nginx.conf /etc/nginx/sites-available/atlas
 
 # Copy compiled trigger-runner native binary from build stage
-COPY --from=trigger-builder /build/triggers/trigger-runner /atlas/app/triggers/trigger-runner
+COPY --chown=agent:agent --from=trigger-builder /build/triggers/trigger-runner /atlas/app/triggers/trigger-runner
 
 # Set permissions, install bun deps, configure nginx/supervisor (single layer)
 RUN chmod +x /atlas/app/entrypoint.sh \
@@ -122,16 +118,12 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && cd /atlas/app/web-ui && bun install \
   && ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default \
-  && mkdir -p /var/log/nginx /var/lib/nginx/body \
-  && chown -R root:agent /var/log/nginx /var/lib/nginx /var/run \
-  && chmod -R 775 /var/log/nginx /var/lib/nginx /var/run
+  && chown -R agent:agent /var/log/nginx /var/lib/nginx /etc/supervisor \
+  && (chown -R agent:agent /var/run 2>/dev/null || true)
 
 WORKDIR /home/agent
 
 EXPOSE 8080
 
-# Run as non-root agent user. sudo is available for privileged operations
-# (e.g. installing packages via user-extensions.sh, chown in entrypoint).
-USER agent
-
+# Entrypoint runs as root to fix volume permissions, then drops to agent
 ENTRYPOINT ["/atlas/app/entrypoint.sh"]
