@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
   unzip xz-utils sudo \
   ffmpeg \
-  pandoc \
+  pandoc libreoffice imagemagick \
   && rm -rf /var/lib/apt/lists/* \
   # --- Create non-root user ---
   && useradd -m -s /bin/bash -G sudo agent \
@@ -77,7 +77,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && pip install --break-system-packages pyyaml \
   # --- Claude Code CLI ---
   && npm install -g @anthropic-ai/claude-code \
-  && claude --version
+  && claude --version \
+  # --- LiteParse CLI (OCR on Client) ---
+  && npm i -g @llamaindex/liteparse
 
 ENV PATH="/home/agent/.nix-profile/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
