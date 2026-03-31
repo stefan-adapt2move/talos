@@ -1753,8 +1753,8 @@ api.get("/chat/messages", (c) => {
     }
   }
 
-  // Merge DB user messages + JSONL assistant messages, sorted chronologically
-  const combined: { role: string; content: string; timestamp: string }[] = [];
+  // Merge DB user messages + JSONL assistant/tool messages, sorted chronologically
+  const combined: { role: string; content: string; timestamp: string; toolName?: string }[] = [];
 
   for (const m of dbMessages) {
     combined.push({
@@ -1764,7 +1764,7 @@ api.get("/chat/messages", (c) => {
     });
   }
 
-  // Only include assistant-text messages (skip tool-use, thinking, tool-result)
+  // Include assistant-text and assistant-tool-use messages (skip thinking, tool-result)
   for (const m of assistantMsgs) {
     if (m.type === "assistant-text") {
       combined.push({
@@ -1772,19 +1772,27 @@ api.get("/chat/messages", (c) => {
         content: m.content,
         timestamp: m.timestamp || "",
       });
+    } else if (m.type === "assistant-tool-use") {
+      combined.push({
+        role: "tool",
+        content: m.content,
+        timestamp: m.timestamp || "",
+        toolName: m.toolName,
+      });
     }
   }
 
   combined.sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
-    // Same timestamp: user before assistant
+    // Same timestamp: user before assistant/tool
     return (a.role === "user" ? 0 : 1) - (b.role === "user" ? 0 : 1);
   });
 
   // Show typing while session is being set up or actively running
-  const isTyping = (!session && dbMessages.length > 0) || (!!session && isRunning);
+  const isAgentRunning = (!session && dbMessages.length > 0) || (!!session && isRunning);
+  const toolSteps = assistantMsgs.filter(m => m.type === "assistant-tool-use").length;
 
-  return c.json({ ok: true, messages: combined, isTyping });
+  return c.json({ ok: true, messages: combined, isAgentRunning, isTyping: isAgentRunning, toolSteps });
 });
 
 api.get("/chat/stream", (c) => {
@@ -1792,14 +1800,17 @@ api.get("/chat/stream", (c) => {
     new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const send = (data: any) => {
+        const send = (event: string, data: any) => {
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
           } catch {}
         };
 
-        let lastLineCount = 0;
-        let wasTyping = false;
+        let lastUserMsgCount = 0;
+        let lastAssistantMsgCount = 0;
+        let lastToolCount = 0;
+        let wasRunning = false;
+        let isFirstPoll = true;
         let pollCount = 0;
         const MAX_POLLS = 600; // 5 minutes at 500ms intervals
 
@@ -1807,7 +1818,7 @@ api.get("/chat/stream", (c) => {
           try {
             pollCount++;
             if (pollCount > MAX_POLLS) {
-              send({ messages: [], isTyping: false, done: true });
+              send("agent_ended", {});
               controller.close();
               return;
             }
@@ -1833,46 +1844,96 @@ api.get("/chat/stream", (c) => {
               }
             }
 
-            // Merge DB user messages + JSONL assistant messages
-            const combined: { role: string; content: string; timestamp: string }[] = [];
-            for (const m of dbMessages) {
-              combined.push({
-                role: "user",
-                content: m.content,
-                timestamp: m.created_at.replace(" ", "T"),
-              });
-            }
-            for (const m of assistantMsgs) {
-              if (m.type === "assistant-text") {
-                combined.push({
-                  role: "assistant",
+            const isAgentRunning = (!session && dbMessages.length > 0) || (!!session && isRunning);
+
+            // Categorize messages
+            const userMessages = dbMessages.map(m => ({
+              content: m.content,
+              timestamp: m.created_at.replace(" ", "T"),
+            }));
+            const assistantTextMsgs = assistantMsgs.filter(m => m.type === "assistant-text");
+            const toolUseMsgs = assistantMsgs.filter(m => m.type === "assistant-tool-use");
+
+            if (isFirstPoll) {
+              // Build full message list for init event
+              const messages: { role: string; content: string; timestamp: string; toolName?: string }[] = [];
+              for (const m of dbMessages) {
+                messages.push({
+                  role: "user",
                   content: m.content,
-                  timestamp: m.timestamp || "",
+                  timestamp: m.created_at.replace(" ", "T"),
                 });
               }
+              for (const m of assistantMsgs) {
+                if (m.type === "assistant-text") {
+                  messages.push({
+                    role: "assistant",
+                    content: m.content,
+                    timestamp: m.timestamp || "",
+                  });
+                } else if (m.type === "assistant-tool-use") {
+                  messages.push({
+                    role: "tool",
+                    content: m.content,
+                    timestamp: m.timestamp || "",
+                    toolName: m.toolName,
+                  });
+                }
+              }
+              messages.sort((a, b) => {
+                if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
+                return (a.role === "user" ? 0 : 1) - (b.role === "user" ? 0 : 1);
+              });
+
+              send("init", { messages, isAgentRunning, toolSteps: toolUseMsgs.length });
+
+              lastUserMsgCount = userMessages.length;
+              lastAssistantMsgCount = assistantTextMsgs.length;
+              lastToolCount = toolUseMsgs.length;
+              wasRunning = isAgentRunning;
+              isFirstPoll = false;
+              setTimeout(poll, 500);
+              return;
             }
-            combined.sort((a, b) => {
-              if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? -1 : 1;
-              return (a.role === "user" ? 0 : 1) - (b.role === "user" ? 0 : 1);
-            });
 
-            const isTyping = (!session && dbMessages.length > 0) || (!!session && isRunning);
-            const currentLineCount = combined.length;
+            // Subsequent polls — send granular events
 
-            // Send update if messages changed or typing status changed
-            if (currentLineCount !== lastLineCount || isTyping !== wasTyping) {
-              send({ messages: combined, isTyping });
-              lastLineCount = currentLineCount;
+            // New user messages
+            if (userMessages.length > lastUserMsgCount) {
+              for (let i = lastUserMsgCount; i < userMessages.length; i++) {
+                send("user_message", { content: userMessages[i].content, timestamp: userMessages[i].timestamp });
+              }
+              lastUserMsgCount = userMessages.length;
             }
 
-            // If typing just stopped (was typing, now not), send final event and close
-            if (wasTyping && !isTyping) {
-              send({ messages: combined, isTyping: false, done: true });
+            // New assistant text messages
+            if (assistantTextMsgs.length > lastAssistantMsgCount) {
+              for (let i = lastAssistantMsgCount; i < assistantTextMsgs.length; i++) {
+                send("assistant_message", { content: assistantTextMsgs[i].content, timestamp: assistantTextMsgs[i].timestamp || "" });
+              }
+              lastAssistantMsgCount = assistantTextMsgs.length;
+            }
+
+            // New tool uses
+            if (toolUseMsgs.length > lastToolCount) {
+              for (let i = lastToolCount; i < toolUseMsgs.length; i++) {
+                send("tool_activity", { toolName: toolUseMsgs[i].toolName, totalSteps: i + 1 });
+              }
+              lastToolCount = toolUseMsgs.length;
+            }
+
+            // Agent state transitions
+            if (!wasRunning && isAgentRunning) {
+              send("agent_started", {});
+            }
+            if (wasRunning && !isAgentRunning) {
+              send("agent_ended", {});
+              wasRunning = isAgentRunning;
               controller.close();
               return;
             }
 
-            wasTyping = isTyping;
+            wasRunning = isAgentRunning;
             setTimeout(poll, 500);
           } catch {
             try { controller.close(); } catch {}
