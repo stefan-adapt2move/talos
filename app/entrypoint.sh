@@ -5,7 +5,9 @@ set -e
 
 # Fix ownership on home directory volume mount (may be root-owned from host)
 # Uses CHOWN capability (granted in pod securityContext) — no sudo needed
-chown -R agent:agent /home/agent
+# Exclude lost+found (ext4 journal dir, root-owned, may not be chownable)
+find /home/agent -maxdepth 1 ! -name lost+found ! -path /home/agent -exec chown -R agent:agent {} + 2>/dev/null
+chown agent:agent /home/agent 2>/dev/null || true
 
 # Resolve agent display name: AGENT_NAME env > config.yml agent.name > "Atlas"
 if [ -z "${AGENT_NAME:-}" ]; then
