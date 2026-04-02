@@ -225,6 +225,27 @@ for skill_name in dependencies playwright triggers agent-browser browser; do
     && echo "  Cleaned up stale system skill: $skill_name"
 done
 
+# Install default skills from external directory (e.g. ConfigMap mount)
+if [ -n "${ATLAS_DEFAULT_SKILLS_DIR:-}" ] && [ -d "$ATLAS_DEFAULT_SKILLS_DIR" ]; then
+  for f in "$ATLAS_DEFAULT_SKILLS_DIR"/*.md; do
+    [ -f "$f" ] || continue
+    _skill_name=$(basename "$f" .md)
+    mkdir -p "$WORKSPACE/skills/$_skill_name"
+    cp "$f" "$WORKSPACE/skills/$_skill_name/SKILL.md"
+    echo "  Installed default skill: $_skill_name"
+  done
+fi
+
+# Install default agents from external directory (e.g. ConfigMap mount)
+if [ -n "${ATLAS_DEFAULT_AGENTS_DIR:-}" ] && [ -d "$ATLAS_DEFAULT_AGENTS_DIR" ]; then
+  mkdir -p "$WORKSPACE/agents"
+  for f in "$ATLAS_DEFAULT_AGENTS_DIR"/*.md; do
+    [ -f "$f" ] || continue
+    cp "$f" "$WORKSPACE/agents/$(basename "$f")"
+    echo "  Installed default agent: $(basename "$f" .md)"
+  done
+fi
+
 # Migrate journal files to journal/ subdir
 for f in "$WORKSPACE/memory/"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md; do
   [ -f "$f" ] || continue
