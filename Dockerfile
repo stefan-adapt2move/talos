@@ -89,6 +89,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && claude --version \
   # --- LiteParse CLI (OCR on Client) ---
   && npm i -g @llamaindex/liteparse \
+  # --- Beads (bd) — AI-native task management ---
+  && npm i -g @beads/bd \
   # --- Homebrew — installed directly into agent home dir for persistence ---
   && mkdir -p /home/agent/.homebrew \
   && curl -fsSL https://github.com/Homebrew/brew/tarball/master \

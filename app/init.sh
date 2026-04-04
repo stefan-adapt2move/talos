@@ -364,6 +364,18 @@ EXTENSIONS
   echo "  Created user-extensions.sh template"
 fi
 
+# ── Phase 7b: Beads Task System ──
+echo "[$(date)] Phase 7b: Beads session directory"
+BEADS_SESSIONS_DIR="$WORKSPACE/.beads-sessions"
+mkdir -p "$BEADS_SESSIONS_DIR"
+# Clean up stale session directories (older than 48 hours)
+find "$BEADS_SESSIONS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+STALE_COUNT=$(find "$BEADS_SESSIONS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+echo "  Sessions dir ready ($STALE_COUNT active sessions)"
+if ! command -v bd &>/dev/null; then
+  echo "  ⚠ bd CLI not found — Beads task management unavailable"
+fi
+
 # ── Phase 8: Claude Code Settings + Discovery Links ──
 # Regenerated on every start to pick up model changes from config.yml
 echo "[$(date)] Phase 8: Claude Code settings + discovery links"
