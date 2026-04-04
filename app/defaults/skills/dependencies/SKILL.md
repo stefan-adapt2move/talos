@@ -1,6 +1,6 @@
 ---
 name: dependencies
-description: Install system packages, Python libs, or JS/TS modules. Use when you need a tool or library that isn't pre-installed, or when the user asks to install something.
+description: Use when installing system packages, Python libs, or JS/TS modules persistent. Use when you need a tool or library that isn't pre-installed, or when the user asks to install something.
 ---
 
 # Installing Dependencies
