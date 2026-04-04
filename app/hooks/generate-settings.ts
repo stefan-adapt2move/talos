@@ -61,11 +61,21 @@ const subagentStopPrompt = [
 // Build enabledPlugins map from config
 const enabledPlugins: Record<string, boolean> = { ...config.plugins.enabled };
 
+// Attribution: use agent email if configured, otherwise disable co-authored-by
+const agentEmail = config.agent?.email;
+const commitAttribution = agentEmail
+  ? `Co-Authored-By: ${config.agent.name || "Atlas"} <${agentEmail}>`
+  : "";
+
 const settings: Record<string, unknown> = {
   env: {
     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_MODEL: mainModel,
+  },
+  attribution: {
+    commit: commitAttribution,
+    pr: "",
   },
   enabledPlugins,
   permissions: {
