@@ -99,10 +99,8 @@ ENV NIX_PATH="nixpkgs=channel:nixpkgs-unstable"
 # Allows non-root package installation at runtime without sudo.
 RUN mkdir -p /nix && chown agent:agent /nix \
   && su -s /bin/bash agent -c "curl -L https://nixos.org/nix/install | sh -s -- --no-daemon" \
-  # Symlink nix binaries directly from the store (resilient to profile GC)
-  && NIX_BIN=$(find /nix/store -maxdepth 2 -path "*/bin/nix" -type f 2>/dev/null | head -1) \
-  && ln -sf "$NIX_BIN" /usr/local/bin/nix \
-  && ln -sf "$(dirname "$NIX_BIN")/nix-env" /usr/local/bin/nix-env
+  && ln -s /home/agent/.nix-profile/bin/nix-env /usr/local/bin/nix-env \
+  && ln -s /home/agent/.nix-profile/bin/nix /usr/local/bin/nix
 
 # Create directory structure
 # /home/agent — agent-owned workspace (mounted as volume)
