@@ -9,20 +9,19 @@ You have **no root or sudo access**. Everything outside `~/` (`/home/agent/`) is
 
 | What | How | Example |
 |------|-----|---------|
-| System packages | `nix-env -iA nixpkgs.<pkg>` | `nix-env -iA nixpkgs.imagemagick` |
+| System packages | `brew install <pkg>` | `brew install imagemagick` |
 | Python packages | `pip install <pkg>` | `pip install requests` |
 
-Search for Nix packages: `nix-env -qaP | grep <name>` or https://search.nixos.org/packages
+Search for Homebrew packages: `brew search <name>` or https://formulae.brew.sh
 
-Remove a Nix package: `nix-env -e <package>`
+Remove a Homebrew package: `brew uninstall <package>`
 
 ## Survive Restarts
 
-Packages installed at runtime are lost on container restart. To make them persistent, add your install commands to `~/user-extensions.sh`:
+Packages installed via Homebrew persist across restarts (stored in `/home/linuxbrew/.linuxbrew/`). Python packages installed via pip outside the home directory may be lost — use `pip install --user <pkg>` or add install commands to `~/user-extensions.sh`:
 
 ```bash
 #!/bin/bash
-nix-env -iA nixpkgs.imagemagick
 pip install requests
 ```
 
@@ -30,9 +29,9 @@ This script runs automatically on every container start.
 
 ## Gotchas
 
-- **Never use `apt-get` or `sudo`** — you don't have access. Use `nix-env` instead.
-- Nix package names can differ from apt (e.g. `nixpkgs.python3` not `python3-pip`). Search first.
-- First `nix-env -qaP` is slow (downloads index). Use the web search instead.
+- **Never use `apt-get` or `sudo`** — you don't have access. Use `brew install` instead.
+- Homebrew package names usually match what you expect (e.g. `brew install python3`, `brew install ffmpeg`).
+- First `brew install` may be slow (updates tap). Use `HOMEBREW_NO_AUTO_UPDATE=1 brew install <pkg>` to skip.
 - No Docker daemon available — you cannot run `docker` commands.
 
 ## Pre-installed
