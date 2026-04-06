@@ -36,12 +36,19 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   nginx \
   sqlite3 \
   python3 python3-pip \
-  chromium-browser \
   openssh-client \
   ca-certificates \
   unzip xz-utils sudo \
   ffmpeg \
   pandoc libreoffice imagemagick \
+  # Chromium system dependencies (libs required to run headless Chromium).
+  # We do NOT install chromium-browser from apt — on Ubuntu 24.04 it's a
+  # snap transitional package that requires snapd, which doesn't run in containers.
+  # Instead, Playwright downloads the actual Chromium binary (see below).
+  libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+  libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libx11-6 \
+  libxcb1 libxext6 libdbus-1-3 libatspi2.0-0t64 libx11-xcb1 \
   && rm -rf /var/lib/apt/lists/* \
   # --- Create non-root user ---
   && useradd -m -s /bin/bash -G sudo agent \
@@ -73,6 +80,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && npm install -g agent-browser \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
+  # --- Chromium via Playwright (real binary, works on arm64 without snapd) ---
+  && npx playwright install chromium \
+  && CHROMIUM_BIN=$(find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -1) \
+  && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium \
+  && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium-browser \
   # --- Python packages (used by messaging addons for config parsing) ---
   && pip install --break-system-packages pyyaml html2text \
   # --- Claude Code CLI ---
@@ -84,13 +96,17 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 ENV PATH="/home/agent/.nix-profile/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 ENV NIX_PATH="nixpkgs=channel:nixpkgs-unstable"
+# Tell agent-browser / Playwright where to find the Chromium binary
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Install Nix package manager (single-user, no daemon) for agent user.
 # Allows non-root package installation at runtime without sudo.
 RUN mkdir -p /nix && chown agent:agent /nix \
   && su -s /bin/bash agent -c "curl -L https://nixos.org/nix/install | sh -s -- --no-daemon" \
-  && ln -s /home/agent/.nix-profile/bin/nix-env /usr/local/bin/nix-env \
-  && ln -s /home/agent/.nix-profile/bin/nix /usr/local/bin/nix
+  # Symlink nix binaries directly from the store (resilient to profile GC)
+  && NIX_BIN=$(find /nix/store -maxdepth 2 -path "*/bin/nix" -type f 2>/dev/null | head -1) \
+  && ln -sf "$NIX_BIN" /usr/local/bin/nix \
+  && ln -sf "$(dirname "$NIX_BIN")/nix-env" /usr/local/bin/nix-env
 
 # Create directory structure
 # /home/agent — agent-owned workspace (mounted as volume)
