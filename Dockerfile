@@ -67,20 +67,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && TYPST_VERSION="0.14.2" \
   && if [ "$ARCH" = "arm64" ]; then TYPST_ARCH="aarch64"; else TYPST_ARCH="x86_64"; fi \
   && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
-    | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
+  | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
   && chmod +x /usr/local/bin/typst \
-  # --- Chromium from Debian (Ubuntu 24.04 only ships a snap stub) ---
-  # Add Debian Trixie repo temporarily to install real chromium binary
-  && curl -fsSL https://ftp-master.debian.org/keys/archive-key-13.asc \
-    | gpg --dearmor -o /etc/apt/trusted.gpg.d/debian-archive.gpg \
-  && echo "deb http://deb.debian.org/debian trixie main" > /etc/apt/sources.list.d/debian-chromium.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends -t trixie chromium \
-  && rm /etc/apt/sources.list.d/debian-chromium.list /etc/apt/trusted.gpg.d/debian-archive.gpg \
-  && apt-get update \
-  && ln -sf /usr/bin/chromium /usr/local/bin/chromium-browser \
   # --- npm globals ---
   && npm install -g agent-browser \
+  && agent-browser install \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
   # --- Python packages (used by messaging addons for config parsing) ---
