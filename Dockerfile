@@ -71,7 +71,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && chmod +x /usr/local/bin/typst \
   # --- npm globals ---
   && npm install -g agent-browser \
-  && agent-browser install \
+  # Install chrome (for arm64 no native install is possible)
+  && if [ "$ARCH" = "arm64" ]; then add-apt-repository ppa:xtradeb/apps && apt-get update && apt-get install -y chromium chromium-driver; else agent-browser install; fi \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
   # --- Python packages (used by messaging addons for config parsing) ---
@@ -84,7 +85,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   # --- Homebrew — installed directly into agent home dir for persistence ---
   && mkdir -p /home/agent/.homebrew \
   && curl -fsSL https://github.com/Homebrew/brew/tarball/master \
-    | tar xz --strip-components 1 -C /home/agent/.homebrew \
+  | tar xz --strip-components 1 -C /home/agent/.homebrew \
   && /home/agent/.homebrew/bin/brew --version
 
 ENV PATH="/home/agent/.homebrew/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
