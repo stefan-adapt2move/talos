@@ -85,46 +85,58 @@ case "${1:-help}" in
 
   check)
     # Stop hook completion gate (RalphLoop-style).
-    # Three exit paths:
-    #   1. .suspend file exists → allow exit (agent explicitly suspended with reason)
-    #   2. No open tasks → allow exit
-    #   3. Open tasks remain → block exit with task list
+    # Four exit paths in order:
+    #   1. .suspend file exists → delete + allow exit (reminder-triggered pause)
+    #   2. .stop-reason file exists → delete + allow exit (agent-initiated early exit)
+    #   3. No open tasks → allow exit
+    #   4. Open tasks remain → block exit with task list
     if [ ! -d "$SESSION_DIR" ]; then
       exit 0
     fi
 
-    # Path 1: Suspend protocol — agent wrote a .suspend file to pause with open tasks.
-    # The agent creates this when it needs user input or sets a reminder to continue later.
-    # Usage: echo "Waiting for API key from user" > $BEADS_DIR/.suspend
+    # Path 1: Suspend protocol — reminder-triggered pause with open tasks.
+    # The agent creates .suspend when setting a reminder to continue later.
+    # Usage: echo "Waiting for user input" > $BEADS_DIR/.suspend
     SUSPEND_FILE="$SESSION_DIR/.suspend"
     if [ -f "$SUSPEND_FILE" ]; then
       SUSPEND_REASON=$(cat "$SUSPEND_FILE" 2>/dev/null || echo "Session suspended")
+      rm -f "$SUSPEND_FILE"
       echo "<beads-session-suspended>"
       echo "Session suspended: $SUSPEND_REASON"
       echo "</beads-session-suspended>"
       exit 0
     fi
 
-    # Path 2/3: Check for open tasks
+    # Path 2: Stop-reason protocol — agent-initiated early exit with JSON justification.
+    # The agent writes a JSON file to exit despite open tasks (non-reminder case).
+    # Usage: echo '{"reason":"Need clarification from user"}' > $BEADS_DIR/.stop-reason
+    STOP_REASON_FILE="$SESSION_DIR/.stop-reason"
+    if [ -f "$STOP_REASON_FILE" ]; then
+      STOP_REASON=$(cat "$STOP_REASON_FILE" 2>/dev/null || echo '{"reason":"Agent requested stop"}')
+      rm -f "$STOP_REASON_FILE"
+      echo "<beads-stop-reason>"
+      echo "$STOP_REASON"
+      echo "</beads-stop-reason>"
+      exit 0
+    fi
+
+    # Path 3: No open tasks → allow exit
     READY_OUTPUT=$(BEADS_DIR="$SESSION_DIR" bd ready --json 2>/dev/null) || true
 
-    # No output or empty array = no open tasks → allow exit
     if [ -z "$READY_OUTPUT" ] || [ "$READY_OUTPUT" = "[]" ] || [ "$READY_OUTPUT" = "null" ]; then
       exit 0
     fi
 
-    # Count open tasks
     OPEN_COUNT=$(echo "$READY_OUTPUT" | jq 'length' 2>/dev/null) || OPEN_COUNT=0
     if [ "$OPEN_COUNT" -eq 0 ]; then
       exit 0
     fi
 
-    # Build task summary for the reason field
+    # Path 4: Open tasks remain → block exit
     TASK_SUMMARY=$(echo "$READY_OUTPUT" | jq -r '.[] | "- [\(.id)] \(.title // .summary // "untitled")"' 2>/dev/null) || TASK_SUMMARY="$OPEN_COUNT open tasks"
 
-    # Block exit — open tasks remain
     cat <<BLOCKJSON
-{"decision":"block","reason":"You have $OPEN_COUNT open Beads task(s). Complete or close them before exiting:\n$TASK_SUMMARY\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> \"reason\"\n- Suspend session: echo \"reason\" > \$BEADS_DIR/.suspend"}
+{"decision":"block","reason":"You have $OPEN_COUNT open Beads task(s). Complete or close them before exiting:\n$TASK_SUMMARY\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> \"reason\"\n- Stop with reason: echo '{\"reason\":\"your justification\"}' > \$BEADS_DIR/.stop-reason\n- Suspend for reminder: echo \"reason\" > \$BEADS_DIR/.suspend"}
 BLOCKJSON
     ;;
 
