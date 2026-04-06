@@ -355,7 +355,7 @@ else
 # User Extensions — runs on every container start.
 # Use for custom setup, e.g.:
 #
-# nix-env -iA nixpkgs.signal-cli    # system packages (no root needed)
+# brew install signal-cli             # system packages (no root needed)
 # pip install some-package           # python packages
 # git config --global user.name "…"  # configuration
 #

@@ -41,7 +41,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   unzip xz-utils sudo \
   ffmpeg \
   pandoc libreoffice imagemagick \
-  gnupg \
+  gnupg build-essential procps \
   && rm -rf /var/lib/apt/lists/* \
   # --- Create non-root user ---
   && useradd -m -s /bin/bash -G sudo agent \
@@ -80,18 +80,17 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && npm install -g @anthropic-ai/claude-code \
   && claude --version \
   # --- LiteParse CLI (OCR on Client) ---
-  && npm i -g @llamaindex/liteparse
+  && npm i -g @llamaindex/liteparse \
+  # --- Homebrew — installed directly into agent home dir for persistence ---
+  && mkdir -p /home/agent/.homebrew \
+  && curl -fsSL https://github.com/Homebrew/brew/tarball/master \
+    | tar xz --strip-components 1 -C /home/agent/.homebrew \
+  && /home/agent/.homebrew/bin/brew --version
 
-ENV PATH="/home/agent/.nix-profile/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
+ENV PATH="/home/agent/.homebrew/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
-ENV NIX_PATH="nixpkgs=channel:nixpkgs-unstable"
-
-# Install Nix package manager (single-user, no daemon) for agent user.
-# Allows non-root package installation at runtime without sudo.
-RUN mkdir -p /nix && chown agent:agent /nix \
-  && su -s /bin/bash agent -c "curl -L https://nixos.org/nix/install | sh -s -- --no-daemon" \
-  && ln -s /home/agent/.nix-profile/bin/nix-env /usr/local/bin/nix-env \
-  && ln -s /home/agent/.nix-profile/bin/nix /usr/local/bin/nix
+ENV HOMEBREW_NO_AUTO_UPDATE=1
+ENV HOMEBREW_NO_ANALYTICS=1
 
 # Create directory structure
 # /home/agent — agent-owned workspace (mounted as volume)
@@ -146,7 +145,7 @@ RUN chmod +x /atlas/app/entrypoint.sh \
 WORKDIR /home/agent
 EXPOSE 8080
 
-# Run as non-root agent user. Nix handles package installs without root.
+# Run as non-root agent user. Homebrew handles package installs without root.
 # sudo is available as fallback for Docker Compose (blocked in K8s by securityContext).
 USER agent
 ENTRYPOINT ["/atlas/app/entrypoint.sh"]
