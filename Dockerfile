@@ -72,7 +72,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   # --- npm globals ---
   && npm install -g agent-browser \
   # Install chrome (for arm64 no native install is possible)
-  && if [ "$ARCH" = "arm64" ]; then add-apt-repository ppa:xtradeb/apps && apt-get update && apt-get install -y chromium chromium-driver; else agent-browser install; fi \
+  && if [ "$ARCH" = "arm64" ]; then apt-get install -y software-properties-common && add-apt-repository ppa:xtradeb/apps && apt-get update && apt-get install -y chromium chromium-driver; else agent-browser install; fi \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
   # --- Python packages (used by messaging addons for config parsing) ---
