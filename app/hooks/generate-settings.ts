@@ -31,24 +31,9 @@ writeFileSync(HOME + "/.failure-env", failureEnvContent);
 // Beads session-isolated hooks — each session gets its own .beads/ directory
 const beadsSessionScript = "/atlas/app/hooks/beads-session.sh";
 
-// Stop completion prompt — secondary gate after the Beads command hook.
-// The beads-session.sh check command already blocks exit if Beads tasks are open
-// (RalphLoop-style, via {"decision":"block"} JSON). This prompt hook handles
-// non-Beads checks that require conversation-level reasoning.
-const stopCompletionPrompt = [
-  "Review this session for non-task completion issues.",
-  "Note: Beads task completion is already enforced by a prior hook — do not check for open tasks.",
-  "",
-  "Check:",
-  "1. **Team lifecycle**: Were all teams properly shut down? (SendMessage shutdown_request to each teammate, then TeamDelete)",
-  "2. **Response delivery**: If this session was triggered by an external message (Signal, Email, Web), was a response sent using the appropriate channel CLI tool (signal send, email reply, etc.)?",
-  "",
-  "If neither check applies (no teams created, not a trigger session), respond: {\"ok\": true}",
-  "",
-  "Respond with JSON:",
-  '{"ok": true} — if the session can safely exit',
-  '{"ok": false, "reason": "brief explanation of what is unfinished"} — if work is clearly incomplete',
-].join("\n");
+// No prompt-based stop hook — the Beads command hook (beads-session.sh check)
+// handles task completion gating via RalphLoop-style {"decision":"block"} JSON.
+// Team lifecycle and response delivery are handled by system prompt instructions.
 
 const subagentStopPrompt = [
   "A team member has completed their task. Review the result in $ARGUMENTS.",
@@ -126,11 +111,6 @@ const settings: Record<string, unknown> = {
         hooks: [
           { type: "command", command: "/atlas/app/hooks/stop.sh" },
           { type: "command", command: `${beadsSessionScript} check` },
-          {
-            type: "prompt",
-            prompt: stopCompletionPrompt,
-            model: subagentReviewModel,
-          },
         ],
       },
     ],

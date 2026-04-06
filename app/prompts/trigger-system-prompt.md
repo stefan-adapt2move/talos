@@ -91,14 +91,17 @@ Use Agent tool with Sonnet:
   Agent(subagent_type="general-purpose", model="sonnet", prompt="<detailed task>")
 
 ### Complex multi-step tasks:
-After planning out, create a team:
-1. TeamCreate(team_name="<descriptive-name>")
-2. TaskCreate — create subtasks with dependencies
-3. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") -> should work through the given tasks
-4. If review needed: Agent(team_name=..., name="task-reviewer", model="haiku") for non-code reviews, or use the specialized code review agents (security-code-reviewer, code-quality-reviewer, architecture-reviewer, performance-reviewer, test-coverage-reviewer, documentation-reviewer, silent-failure-reviewer) for code
-5. Coordinate via SendMessage — answer teammate questions from your context
-6. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete()
+Break the work into granular Beads tasks, then delegate execution:
+1. Plan: decompose the goal into small, concrete tasks using `bd add "task title"`. For complex work, create many tasks (tens to hundreds) — granularity is key.
+2. Set dependencies: `bd dep <child-id> <parent-id>` to define execution order. `bd ready` shows unblocked tasks.
+3. TeamCreate(team_name="<descriptive-name>")
+4. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") → workers pick up ready tasks via `bd claim <id>`, complete them via `bd close <id> "result"`.
+5. If review needed: Agent(team_name=..., name="task-reviewer", model="haiku") for non-code reviews, or use the specialized code review agents (security-code-reviewer, code-quality-reviewer, architecture-reviewer, performance-reviewer, test-coverage-reviewer, documentation-reviewer, silent-failure-reviewer) for code.
+6. Coordinate via SendMessage — answer teammate questions from your context.
+7. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete().
 May vary in which teammates you additionally need to actually fulfill the requirements.
+
+**Planning principle:** prefer many small tasks over few large ones. Each task should be completable in a single focused step. Use `bd prime` to see current state, `bd ready` for next actions.
 
 ### Critical thinking (pre-decision, option analysis, deep review):
 Use the critical-thinker agent when you need to challenge assumptions or narrow options before committing:

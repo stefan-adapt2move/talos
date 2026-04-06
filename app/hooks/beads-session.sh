@@ -69,17 +69,20 @@ case "${1:-help}" in
     ;;
 
   prime)
-    # Output task context (for PreCompact hook — context recovery)
+    # Output task context for compaction and context recovery.
+    # Called by PreCompact hooks — output gets included in the compaction summary,
+    # ensuring task state survives context compression.
     if [ -d "$SESSION_DIR" ]; then
-      # Show suspend reason from previous session if present
+      # Show suspend reason if present (read-only — check command handles deletion)
       if [ -f "$SESSION_DIR/.suspend" ]; then
         echo "<beads-previous-suspend>"
-        echo "Previous session was suspended: $(cat "$SESSION_DIR/.suspend" 2>/dev/null)"
+        echo "Session was suspended: $(cat "$SESSION_DIR/.suspend" 2>/dev/null)"
         echo "Review open tasks below and continue where the previous session left off."
         echo "</beads-previous-suspend>"
-        rm -f "$SESSION_DIR/.suspend"  # Clear suspend flag for this session
       fi
+      echo "<beads-task-context>"
       BEADS_DIR="$SESSION_DIR" bd prime 2>/dev/null || true
+      echo "</beads-task-context>"
     fi
     ;;
 
