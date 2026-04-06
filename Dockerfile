@@ -41,14 +41,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   unzip xz-utils sudo \
   ffmpeg \
   pandoc libreoffice imagemagick \
-  # Chromium system dependencies (libs required to run headless Chromium).
-  # We do NOT install chromium-browser from apt — on Ubuntu 24.04 it's a
-  # snap transitional package that requires snapd, which doesn't run in containers.
-  # Instead, Playwright downloads the actual Chromium binary (see below).
-  libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
-  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-  libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libx11-6 \
-  libxcb1 libxext6 libdbus-1-3 libatspi2.0-0t64 libx11-xcb1 \
+  gnupg \
   && rm -rf /var/lib/apt/lists/* \
   # --- Create non-root user ---
   && useradd -m -s /bin/bash -G sudo agent \
@@ -76,15 +69,20 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}-unknown-linux-musl.tar.xz" \
     | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
   && chmod +x /usr/local/bin/typst \
+  # --- Chromium from Debian (Ubuntu 24.04 only ships a snap stub) ---
+  # Add Debian Trixie repo temporarily to install real chromium binary
+  && curl -fsSL https://ftp-master.debian.org/keys/archive-key-13.asc \
+    | gpg --dearmor -o /etc/apt/trusted.gpg.d/debian-archive.gpg \
+  && echo "deb http://deb.debian.org/debian trixie main" > /etc/apt/sources.list.d/debian-chromium.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends -t trixie chromium \
+  && rm /etc/apt/sources.list.d/debian-chromium.list /etc/apt/trusted.gpg.d/debian-archive.gpg \
+  && apt-get update \
+  && ln -sf /usr/bin/chromium /usr/local/bin/chromium-browser \
   # --- npm globals ---
   && npm install -g agent-browser \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
-  # --- Chromium via Playwright (real binary, works on arm64 without snapd) ---
-  && npx playwright install chromium \
-  && CHROMIUM_BIN=$(find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -1) \
-  && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium \
-  && ln -sf "$CHROMIUM_BIN" /usr/local/bin/chromium-browser \
   # --- Python packages (used by messaging addons for config parsing) ---
   && pip install --break-system-packages pyyaml html2text \
   # --- Claude Code CLI ---
@@ -96,8 +94,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 ENV PATH="/home/agent/.nix-profile/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
 ENV NIX_PATH="nixpkgs=channel:nixpkgs-unstable"
-# Tell agent-browser / Playwright where to find the Chromium binary
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Install Nix package manager (single-user, no daemon) for agent user.
 # Allows non-root package installation at runtime without sudo.
