@@ -92,10 +92,10 @@ Use Agent tool with Sonnet:
 
 ### Complex multi-step tasks:
 Break the work into granular Beads tasks, then delegate execution:
-1. Plan: decompose the goal into small, concrete tasks using `bd add "task title"`. For complex work, create many tasks (tens to hundreds) — granularity is key.
-2. Set dependencies: `bd dep <child-id> <parent-id>` to define execution order. `bd ready` shows unblocked tasks.
+1. Plan: decompose the goal into small, concrete tasks using `bd create "task title"`. For complex work, create many tasks (tens to hundreds) — granularity is key.
+2. Set dependencies: `bd dep add <issue-id> <depends-on-id>` to define execution order. `bd ready` shows unblocked tasks.
 3. TeamCreate(team_name="<descriptive-name>")
-4. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") → workers pick up ready tasks via `bd claim <id>`, complete them via `bd close <id> "result"`.
+4. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") → workers pick up ready tasks via `bd update <id> --claim`, complete them via `bd close <id> --reason "result"`.
 5. If review needed: Agent(team_name=..., name="task-reviewer", model="haiku") for non-code reviews, or use the specialized code review agents (security-code-reviewer, code-quality-reviewer, architecture-reviewer, performance-reviewer, test-coverage-reviewer, documentation-reviewer, silent-failure-reviewer) for code.
 6. Coordinate via SendMessage — answer teammate questions from your context.
 7. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete().

@@ -365,15 +365,22 @@ EXTENSIONS
 fi
 
 # ── Phase 7b: Beads Task System ──
-echo "[$(date)] Phase 7b: Beads session directory"
-BEADS_SESSIONS_DIR="$WORKSPACE/.beads-sessions"
-mkdir -p "$BEADS_SESSIONS_DIR"
-# Clean up stale session directories (older than 48 hours)
-find "$BEADS_SESSIONS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null || true
-STALE_COUNT=$(find "$BEADS_SESSIONS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-echo "  Sessions dir ready ($STALE_COUNT active sessions)"
+echo "[$(date)] Phase 7b: Beads task system (global)"
+BEADS_DIR_PATH="$HOME/.beads"
 if ! command -v bd &>/dev/null; then
-  echo "  ⚠ bd CLI not found — Beads task management unavailable"
+  echo "  WARNING: bd CLI not found — Beads task management unavailable"
+else
+  # Initialize global BEADS_DIR if it doesn't exist yet
+  if [ ! -d "$BEADS_DIR_PATH" ]; then
+    BEADS_DIR="$BEADS_DIR_PATH" bd init --stealth --quiet 2>/dev/null || true
+    echo "  Initialized global Beads dir: $BEADS_DIR_PATH"
+  else
+    echo "  Global Beads dir exists: $BEADS_DIR_PATH"
+  fi
+  # Log stale task count (informational only — do not delete)
+  STALE_JSON=$(BEADS_DIR="$BEADS_DIR_PATH" bd stale --days 7 --json 2>/dev/null) || STALE_JSON="[]"
+  STALE_COUNT=$(echo "$STALE_JSON" | jq 'length' 2>/dev/null) || STALE_COUNT=0
+  echo "  Stale tasks (>7 days, in_progress): $STALE_COUNT"
 fi
 
 # ── Phase 8: Claude Code Settings + Discovery Links ──
