@@ -122,7 +122,7 @@ Control what gets shared per peer:
 
 ## Gotchas
 
-- **Federation requires Dolt backend.** Stealth mode (`--stealth`) uses SQLite -- no federation. To migrate: re-init without `--stealth` and import existing data.
+- **Federation requires Dolt backend.** Stealth mode (`--stealth`) uses SQLite -- no federation. To enable federation, initialize a fresh Beads dir without `--stealth` (requires Dolt installed).
 - **Sync is always manual.** No background sync. Run `bd federation sync` explicitly when you want to exchange tasks.
 - Atomic claiming only prevents conflicts between agents sharing the same BEADS_DIR or synced via federation. Unsynced workspaces can have duplicate claims.
 - Molecules are templates, not tasks. They create tasks when poured. Don't confuse molecule IDs with task IDs.

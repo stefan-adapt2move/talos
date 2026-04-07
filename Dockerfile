@@ -90,7 +90,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   # --- LiteParse CLI (OCR on Client) ---
   && npm i -g @llamaindex/liteparse \
   # --- Beads (bd) — AI-native task management ---
-  && npm i -g @beads/bd \
+  && npm i -g @beads/bd@0.63.3 \
   # --- Homebrew — installed directly into agent home dir for persistence ---
   && mkdir -p /home/agent/.homebrew \
   && curl -fsSL https://github.com/Homebrew/brew/tarball/master \
@@ -99,6 +99,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 ENV PATH="/home/agent/.homebrew/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
+ENV BEADS_DIR=/home/agent/.beads
 ENV HOMEBREW_NO_AUTO_UPDATE=1
 ENV HOMEBREW_NO_ANALYTICS=1
 

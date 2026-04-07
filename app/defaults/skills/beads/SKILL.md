@@ -23,6 +23,7 @@ description: Task management with Beads (bd CLI). Use when planning multi-step w
 | Show dep tree | `bd dep tree <id>` |
 | Find ready work | `bd ready` |
 | Link parent-child | `bd link <parent> <child> --type parent` |
+| Create with deps | `bd create "title" --deps discovered-from:<id>` |
 | Task context | `bd prime` |
 | Overview | `bd status` |
 | Search | `bd search "keyword"` |

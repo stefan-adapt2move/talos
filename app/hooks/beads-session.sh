@@ -1,15 +1,29 @@
 #!/bin/bash
 # beads-session.sh — Global Beads task management wrapper.
 # Uses a single global BEADS_DIR at ~/.beads that persists across sessions.
-# Each session/subagent gets a unique BEADS_ACTOR for claim ownership.
+# Each session gets a unique BEADS_ACTOR derived from session_id for claim ownership.
 #
 # Usage (from hooks):
 #   beads-session.sh start   — Set BEADS_DIR + BEADS_ACTOR env, run bd prime
 #   beads-session.sh prime   — Show open tasks (context injection for compaction)
-#   beads-session.sh check   — Stop hook: block if THIS actor has in_progress tasks
+#   beads-session.sh check   — Stop hook: block if THIS session has in_progress tasks
+#
+# Note: BEADS_ACTOR is NOT read from env in check — it's derived from stdin
+# session_id, because hooks run as separate processes without CLAUDE_ENV_FILE vars.
 set -euo pipefail
 
 BEADS_DIR_PATH="$HOME/.beads"
+
+# Read session_id from Claude Code hook stdin JSON.
+# Used by both start (to set actor) and check (to verify ownership).
+# Stdin is consumed once — call only once per invocation.
+read_session_id() {
+  if [ ! -t 0 ]; then
+    local stdin_json
+    stdin_json=$(timeout 0.1 cat 2>/dev/null) || true
+    echo "$stdin_json" | jq -r '.session_id // empty' 2>/dev/null || true
+  fi
+}
 
 # --- Commands ---
 case "${1:-help}" in
@@ -19,32 +33,25 @@ case "${1:-help}" in
       echo "export BEADS_DIR=\"$BEADS_DIR_PATH\"" >> "$CLAUDE_ENV_FILE"
     fi
 
-    # Set BEADS_ACTOR from session_id so each session claims tasks under its own identity.
-    # This allows the stop hook to filter "my tasks" vs "other sessions' tasks".
-    # Subagents/team members should override BEADS_ACTOR with their own identity.
-    ACTOR=""
-    if [ ! -t 0 ]; then
-      STDIN_JSON=$(timeout 1 cat 2>/dev/null) || true
-      SESSION_ID=$(echo "$STDIN_JSON" | jq -r '.session_id // empty' 2>/dev/null) || true
-      if [ -n "${SESSION_ID:-}" ]; then
-        ACTOR="session-${SESSION_ID}"
-      fi
+    # Derive actor from session_id. Each session claims tasks under its own identity.
+    SESSION_ID=$(read_session_id)
+    if [ -z "${SESSION_ID:-}" ]; then
+      SESSION_ID="${ATLAS_TRIGGER_SESSION_KEY:-default}"
     fi
-    # Fallback: trigger session key or generic
-    if [ -z "$ACTOR" ]; then
-      ACTOR="session-${ATLAS_TRIGGER_SESSION_KEY:-default}"
-    fi
+    ACTOR="session-${SESSION_ID}"
+
     if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
       echo "export BEADS_ACTOR=\"$ACTOR\"" >> "$CLAUDE_ENV_FILE"
     fi
 
-    # Show current task context
+    # Show current task context (wrapped for consistency with prime)
+    echo "<beads-task-context>"
     BEADS_DIR="$BEADS_DIR_PATH" bd prime 2>/dev/null || true
+    echo "</beads-task-context>"
     ;;
 
   prime)
     # Output task context for compaction and context recovery.
-    # Show suspend reason if present, then show open tasks wrapped in tags.
     if [ -f "$BEADS_DIR_PATH/.suspend" ]; then
       echo "<beads-previous-suspend>"
       echo "Session was suspended: $(cat "$BEADS_DIR_PATH/.suspend" 2>/dev/null)"
@@ -58,10 +65,10 @@ case "${1:-help}" in
 
   check)
     # Stop hook completion gate.
-    # Three exit paths in order:
-    #   1. .suspend file exists → delete + allow exit (reminder/pause scenario)
-    #   2. .stop-reason file exists → delete + allow exit (agent-initiated early exit)
-    #   3. Check for in_progress tasks owned by THIS actor → block if any exist
+    # Three exit paths:
+    #   1. .suspend file exists → delete + allow exit
+    #   2. .stop-reason file exists → delete + allow exit
+    #   3. in_progress tasks owned by THIS session → block
 
     # Path 1: Suspend protocol
     SUSPEND_FILE="$BEADS_DIR_PATH/.suspend"
@@ -85,12 +92,12 @@ case "${1:-help}" in
       exit 0
     fi
 
-    # Path 3: Check for in_progress tasks assigned to THIS actor
-    ACTOR="${BEADS_ACTOR:-}"
-    if [ -z "$ACTOR" ]; then
-      # No actor identity — can't determine ownership, allow exit
+    # Path 3: Derive actor from stdin session_id (NOT from env — hooks don't inherit CLAUDE_ENV_FILE)
+    SESSION_ID=$(read_session_id)
+    if [ -z "${SESSION_ID:-}" ]; then
       exit 0
     fi
+    ACTOR="session-${SESSION_ID}"
 
     TASK_OUTPUT=$(BEADS_DIR="$BEADS_DIR_PATH" bd list --assignee "$ACTOR" --status in_progress --json 2>/dev/null) || true
 
@@ -98,17 +105,18 @@ case "${1:-help}" in
       exit 0
     fi
 
-    OPEN_COUNT=$(echo "$TASK_OUTPUT" | jq 'length' 2>/dev/null) || OPEN_COUNT=0
-    if [ "$OPEN_COUNT" -eq 0 ]; then
+    OPEN_COUNT=$(echo "$TASK_OUTPUT" | jq 'length' 2>/dev/null || echo "0")
+    if ! [[ "$OPEN_COUNT" =~ ^[0-9]+$ ]] || [ "$OPEN_COUNT" -eq 0 ]; then
       exit 0
     fi
 
-    # in_progress tasks owned by this actor → block exit
-    TASK_SUMMARY=$(echo "$TASK_OUTPUT" | jq -r '.[] | "- [\(.id)] \(.title // .summary // "untitled")"' 2>/dev/null) || TASK_SUMMARY="$OPEN_COUNT open tasks"
+    # Build task summary and emit valid JSON via jq (avoids newline escaping bugs)
+    TASK_LIST=$(echo "$TASK_OUTPUT" | jq -r '[.[] | "- [\(.id)] \(.title // .summary // "untitled")"] | join("\n")' 2>/dev/null) || TASK_LIST="$OPEN_COUNT open tasks"
 
-    cat <<BLOCKJSON
-{"decision":"block","reason":"You have $OPEN_COUNT in-progress Beads task(s). Complete or close them before exiting:\n$TASK_SUMMARY\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"reason\"\n- Stop with reason: echo '{\"reason\":\"your justification\"}' > \$BEADS_DIR/.stop-reason\n- Suspend for reminder: echo \"reason\" > \$BEADS_DIR/.suspend"}
-BLOCKJSON
+    jq -n --arg count "$OPEN_COUNT" --arg tasks "$TASK_LIST" '{
+      decision: "block",
+      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"reason\"\n- Stop with reason: echo \u0027{\"reason\":\"your justification\"}\u0027 > $BEADS_DIR/.stop-reason\n- Suspend for reminder: echo \"reason\" > $BEADS_DIR/.suspend")
+    }'
     ;;
 
   *)

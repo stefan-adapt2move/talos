@@ -51,6 +51,13 @@ bd close <id> --reason "Merged PR #42, deployed to staging"
 ### Why claiming matters
 Tasks persist globally. Multiple sessions run concurrently (triggers, reminders, cron jobs). When you `--claim`, the task is yours. The stop hook only blocks on tasks you claimed — other sessions' tasks don't block you. This happens automatically.
 
+### Exiting with open tasks
+If you need to exit but have claimed tasks still open (e.g., waiting for user input, setting a reminder):
+- **Suspend**: `echo "reason" > $BEADS_DIR/.suspend` — for reminder-triggered pauses
+- **Stop with reason**: `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` — for any justified early exit
+
+Without one of these, the stop hook will block your exit.
+
 ### Cross-session continuity
 When a session starts, `bd prime` shows all open tasks automatically. If you set a reminder for follow-up, the next session sees your open tasks and can continue where you left off.
 </task_management>
