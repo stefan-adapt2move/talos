@@ -1,86 +1,83 @@
 ---
 name: beads
-description: Task management with Beads (bd CLI). Use when creating, tracking, or managing tasks and dependencies. Loaded automatically for complex multi-step work.
+description: Task management with Beads (bd CLI). Use when planning multi-step work, tracking progress across sessions, or coordinating tasks with dependencies. Triggers on 'create task', 'track progress', 'plan work', 'what tasks are open', 'dependency graph', or any complex goal that benefits from decomposition. Do NOT use for simple one-off actions.
 ---
 
 # Beads Task Management
 
-Beads (`bd`) is a dependency-aware task tracker. Tasks persist in `~/.beads` across sessions.
+`bd` is a dependency-aware task tracker. All data persists in `~/.beads` across sessions.
 
-## Core Commands
+## Quick Reference
 
 | Action | Command |
 |--------|---------|
 | Create task | `bd create "title" -t task` |
 | Create epic | `bd create "title" -t epic` |
-| Quick capture | `bd q "title"` (returns only ID) |
+| Quick capture (ID only) | `bd q "title"` |
 | List open | `bd list --status open` |
 | Show details | `bd show <id>` |
 | Claim task | `bd update <id> --claim` |
 | Close task | `bd close <id> --reason "what was done"` |
 | Reopen | `bd reopen <id>` |
-
-## Dependencies
-
-| Action | Command |
-|--------|---------|
 | Add dependency | `bd dep add <issue-id> <depends-on-id>` |
-| Show tree | `bd dep tree <id>` |
-| Find ready work | `bd ready` (unblocked, unclaimed) |
+| Show dep tree | `bd dep tree <id>` |
+| Find ready work | `bd ready` |
 | Link parent-child | `bd link <parent> <child> --type parent` |
-
-## Context & Status
-
-| Action | Command |
-|--------|---------|
-| Task context (AI-optimized) | `bd prime` |
+| Task context | `bd prime` |
 | Overview | `bd status` |
 | Search | `bd search "keyword"` |
-| Stale tasks | `bd stale --days 7` |
+| Compound filter | `bd query "status=open AND assignee=me"` |
 
 ## Task Lifecycle
 
 ```
-open → in_progress (via --claim) → closed (via bd close)
-                                  → blocked (has unresolved dependencies)
-                                  → deferred (via bd update <id> --defer-until "date")
+open --> in_progress (via --claim) --> closed (via bd close)
+     \-> blocked (unresolved deps)
+     \-> deferred (via bd update <id> --defer-until "2026-04-10")
 ```
 
 ## Session Integration
 
-- `bd prime` runs at SessionStart — shows all open tasks
-- Stop hook blocks exit if you have claimed but unclosed tasks
-- To exit with open tasks: `echo "reason" > $BEADS_DIR/.suspend`
-- Or: `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason`
+- **SessionStart**: `bd prime` runs automatically -- shows all open tasks globally
+- **Stop hook**: blocks exit if you have claimed-but-unclosed tasks (scoped to YOUR session via `BEADS_SESSION_ID`)
+- **Exit with open tasks**: write `echo "reason" > $BEADS_DIR/.suspend` (for reminders) or `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` (early exit)
+
+## Gotchas
+
+- `bd list --status` takes **one** value only. For compound filters use `bd query "status=open OR status=in_progress"`.
+- `bd dep add <A> <B>` means "A depends on B" (A is blocked by B). Order matters.
+- `bd close` requires `--reason` flag -- positional reason argument does NOT work.
+- `bd ready` returns unclaimed AND unblocked tasks. Claimed tasks (in_progress) are excluded.
+- IDs are hash-based (`agent-ps4`), not sequential. Always copy from output.
+- The `--claim` flag sets both assignee AND status=in_progress atomically.
+- `BEADS_DIR` and `BEADS_SESSION_ID` are set automatically by the SessionStart hook. Do not override.
 
 ## Patterns
 
-### Planning work
+### Plan and execute work
 ```bash
-bd create "Epic title" -t epic
-bd create "Subtask 1" -t task
+# 1. Create structure
+bd create "Epic title" -t epic           # Returns epic ID
+bd create "Subtask 1" -t task            # Returns task ID
 bd create "Subtask 2" -t task
 bd link <epic-id> <task1-id> --type parent
 bd link <epic-id> <task2-id> --type parent
-bd dep add <task2-id> <task1-id>  # task2 depends on task1
-```
+bd dep add <task2-id> <task1-id>         # task2 waits for task1
 
-### Working through tasks
-```bash
-bd ready                        # See what's unblocked
-bd update <id> --claim          # Claim it
+# 2. Work through tasks
+bd ready                                 # See unblocked work
+bd update <id> --claim                   # Claim it
 # ... do the work ...
-bd close <id> --reason "Done"   # Close it
-bd ready                        # Next task
-```
+bd close <id> --reason "Done: merged PR" # Close with context
+bd ready                                 # Next task
 
-### Discovering new work
-```bash
+# 3. Discover new work during execution
 bd create "Found issue X" --deps discovered-from:<current-id>
 ```
 
-## Environment
-
-- `BEADS_DIR=~/.beads` — set automatically by SessionStart hook
-- `BEADS_SESSION_ID` — current session ID, used for task claiming
-- All data persists across sessions in `~/.beads/`
+### Cross-session continuity
+Tasks persist. A reminder session picks up where you left off:
+```bash
+bd prime                                 # See all open tasks
+bd ready                                 # What's unblocked now?
+```

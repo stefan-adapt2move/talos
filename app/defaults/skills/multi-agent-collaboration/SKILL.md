@@ -1,108 +1,100 @@
 ---
 name: multi-agent-collaboration
-description: Advanced multi-agent coordination with Beads — federation, molecules, swarms, and gates. Use when coordinating across multiple AI agents or workspaces.
+description: Cross-agent coordination with Beads -- federation, molecules, swarms, and gates. Use when syncing tasks between agents/workspaces, setting up structured parallel workflows, or waiting on async external events. Do NOT use for single-session task management (use beads skill instead).
 ---
 
-# Multi-Agent Collaboration with Beads
+# Multi-Agent Collaboration
 
-Advanced features for coordinating work across multiple agents or workspaces.
+Advanced Beads features for coordinating across agents or workspaces. Requires the `beads` skill for basics.
 
-## Atomic Claiming
+## Atomic Claiming (Team Safety)
 
-Multiple agents can safely work from the same task pool:
+When multiple agents share a task pool, use atomic claiming to prevent race conditions:
 
 ```bash
-bd update <id> --claim          # Atomically sets assignee + status=in_progress
-bd ready                        # Returns only unclaimed, unblocked work
-bd stale --days 7               # Find abandoned in_progress claims
+bd update <id> --claim          # Sets assignee + in_progress atomically
+bd ready                        # Only unclaimed, unblocked tasks
+bd stale --days 7               # Find abandoned claims
 ```
 
-## Molecules — Structured Workflows
+## Team Workflow (Single Session)
 
-Templates for common multi-agent patterns:
+Coordinate Claude Code teams via shared Beads pool:
+
+```bash
+# Coordinator: plan tasks
+bd create "Epic: Feature X" -t epic
+bd create "Task 1" -t task && bd link <epic> <t1> --type parent
+bd create "Task 2" -t task && bd link <epic> <t2> --type parent
+
+# Coordinator: spawn workers
+TeamCreate(team_name="feature-x")
+Agent(team_name="feature-x", name="worker-1", model="sonnet",
+  prompt="Run bd ready, claim with bd update <id> --claim, work, close with bd close <id> --reason '...'")
+
+# Workers claim atomically -- no conflicts
+# Coordinator monitors: bd status
+```
+
+## Molecules -- Structured Workflows
+
+Template-based workflow patterns (for recurring or complex operations):
 
 | Type | Purpose |
 |------|---------|
 | **Swarms** | Epic + children with dependency DAG; max parallelism |
-| **Patrols** | Recurring operational cycles (health checks, deployments) |
+| **Patrols** | Recurring cycles (health checks, deployments) |
 | **Wisps** | Ephemeral one-time workflows with auto-cleanup |
 
 ```bash
 bd formula list                 # Available templates
 bd mol pour <proto-id>          # Create persistent workflow
-bd mol wisp <proto-id>          # Create ephemeral workflow
+bd mol wisp <proto-id>          # Ephemeral (auto-cleaned)
 bd swarm validate <epic-id>     # Analyze parallelizability
 ```
 
-## Gates — Async Coordination
+## Gates -- Async Coordination
 
-Molecules can wait on external events:
+Molecules can block on external events:
 
-| Gate Type | Trigger |
-|-----------|---------|
+| Gate | Clears when |
+|------|-------------|
 | `gh:run` | GitHub Actions completed |
 | `gh:pr` | PR merged |
 | `timer` | Time elapsed |
 | `human` | Manual approval |
-| `mail` | Email delegation |
 
 ```bash
-bd gate list <mol-id>           # Show gates for a molecule
-bd gate clear <gate-id>         # Manually clear a gate
-bd mol ready --gated            # Find molecules with cleared gates
+bd gate list <mol-id>           # Show gates
+bd gate clear <gate-id>         # Manual clear
+bd mol ready --gated            # Molecules with cleared gates
 ```
 
-## Federation — Cross-Workspace Sync
+## Federation -- Cross-Workspace Sync
 
-Sync tasks between multiple agent workspaces (e.g., Atlas <-> Talos):
+Sync tasks between agent workspaces:
 
-### Setup
 ```bash
-bd federation add-peer <name> <remote-url>
-# Supported remotes: dolthub://, s3://, file://, ssh://, https://
-```
+# Setup (one-time per peer)
+bd federation add-peer <peer-name> dolthub://myorg/shared-tasks
+# Remotes: dolthub://, s3://, file://, ssh://, https://
 
-### Usage
-```bash
-bd federation sync              # Sync with all peers
-bd federation sync <peer-name>  # Sync with specific peer
-bd federation status            # Show sync status
+# Sync
+bd federation sync              # All peers
+bd federation sync talos        # Specific peer
+bd federation status            # Check sync state
 ```
 
 ### Data Sovereignty Tiers
-- **T1**: Full sync — all issues shared
-- **T2**: Filtered sync — label/project-based
-- **T3**: Summary only — titles + status, no details
-- **T4**: Notifications only — events without content
+Control what gets shared per peer:
+- **T1**: Full sync -- all issues
+- **T2**: Filtered -- by label/project
+- **T3**: Summary only -- titles + status
+- **T4**: Notifications only -- events without content
 
-### Example: Atlas <-> Talos Collaboration
-```bash
-# On Atlas:
-bd federation add-peer talos dolthub://adapt2move/shared-tasks
+## Gotchas
 
-# On Talos:
-bd federation add-peer atlas dolthub://adapt2move/shared-tasks
-
-# Both agents can now:
-bd create "Shared task" --label "shared"
-bd federation sync
-```
-
-## Team Workflow Pattern
-
-For complex tasks within a single session using Claude Code teams:
-
-```bash
-# Coordinator creates tasks
-bd create "Epic: Feature X" -t epic
-bd create "Task 1" -t task && bd link <epic> <t1> --type parent
-bd create "Task 2" -t task && bd link <epic> <t2> --type parent
-
-# Spawn team
-TeamCreate(team_name="feature-x")
-Agent(team_name="feature-x", name="worker-1", model="sonnet",
-  prompt="Check bd ready, claim a task with bd update <id> --claim, complete it, close with bd close <id> --reason '...'")
-
-# Workers atomically claim and complete tasks
-# Coordinator monitors: bd status
-```
+- Federation requires Dolt backend (default in non-stealth mode). Stealth mode (`--stealth`) uses SQLite -- no federation support.
+- Atomic claiming only prevents conflicts between agents sharing the same BEADS_DIR or synced via federation. Unsynced workspaces can have duplicate claims.
+- Molecules are templates, not tasks. They create tasks when poured. Don't confuse molecule IDs with task IDs.
+- Gates clear asynchronously. Poll with `bd mol ready --gated`, don't busy-wait.
