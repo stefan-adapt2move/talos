@@ -50,7 +50,7 @@ open --> in_progress (via --claim) --> closed (via bd close)
 - `bd ready` returns unclaimed AND unblocked tasks. Claimed tasks (in_progress) are excluded.
 - IDs are hash-based (`agent-ps4`), not sequential. Always copy from output.
 - The `--claim` flag sets both assignee AND status=in_progress atomically.
-- `BEADS_DIR` and `BEADS_SESSION_ID` are set automatically by the SessionStart hook. Do not override.
+- `BEADS_DIR` is set automatically by the SessionStart hook. Do not override.
 
 ## Patterns
 

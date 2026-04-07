@@ -72,18 +72,46 @@ bd mol ready --gated            # Molecules with cleared gates
 
 ## Federation -- Cross-Workspace Sync
 
-Sync tasks between agent workspaces:
+Sync tasks between agent workspaces. Local tasks and peer tasks are decoupled -- federation syncs on demand, not automatically.
+
+### Authentication
+
+Each remote type needs its own credentials:
+
+| Remote | Auth method |
+|--------|-------------|
+| `dolthub://` | `DOLT_TOKEN` env var or `dolt login` (stores in `~/.dolt/creds/`) |
+| `s3://` | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` env vars (or `~/.aws/credentials`) |
+| `file://` / `ssh://` | Standard filesystem/SSH key auth |
+| `https://` | Basic auth in URL or `DOLT_TOKEN` header |
+
+Store secrets in `~/secrets/` and export them in `~/user-extensions.sh`:
+```bash
+# ~/user-extensions.sh
+export DOLT_TOKEN="$(cat ~/secrets/dolt-token)"
+export AWS_ACCESS_KEY_ID="$(cat ~/secrets/aws-key-id)"
+export AWS_SECRET_ACCESS_KEY="$(cat ~/secrets/aws-secret-key)"
+```
+
+### Setup and Sync
 
 ```bash
-# Setup (one-time per peer)
+# Add peer (one-time)
 bd federation add-peer <peer-name> dolthub://myorg/shared-tasks
-# Remotes: dolthub://, s3://, file://, ssh://, https://
 
-# Sync
+# Sync is explicit -- never automatic
 bd federation sync              # All peers
-bd federation sync talos        # Specific peer
+bd federation sync <peer-name>  # Specific peer
 bd federation status            # Check sync state
 ```
+
+### Local vs Peer Tasks
+
+Federation merges are explicit. Your local `.beads/` database is always the source of truth:
+- **Local tasks**: created and managed normally. Never auto-pushed to peers.
+- **Peer tasks**: appear after `bd federation sync`. Identified by their origin peer in metadata.
+- **Conflicts**: Dolt's merge handles concurrent edits. Same task modified on both sides → merge conflict resolved by Dolt's 3-way merge.
+- Use labels or projects to separate local-only vs shared tasks: `bd create "Shared task" --label "shared"`
 
 ### Data Sovereignty Tiers
 Control what gets shared per peer:
@@ -94,7 +122,8 @@ Control what gets shared per peer:
 
 ## Gotchas
 
-- Federation requires Dolt backend (default in non-stealth mode). Stealth mode (`--stealth`) uses SQLite -- no federation support.
+- **Federation requires Dolt backend.** Stealth mode (`--stealth`) uses SQLite -- no federation. To migrate: re-init without `--stealth` and import existing data.
+- **Sync is always manual.** No background sync. Run `bd federation sync` explicitly when you want to exchange tasks.
 - Atomic claiming only prevents conflicts between agents sharing the same BEADS_DIR or synced via federation. Unsynced workspaces can have duplicate claims.
 - Molecules are templates, not tasks. They create tasks when poured. Don't confuse molecule IDs with task IDs.
 - Gates clear asynchronously. Poll with `bd mol ready --gated`, don't busy-wait.
