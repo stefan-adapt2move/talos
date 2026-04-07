@@ -49,14 +49,7 @@ bd close <id> --reason "Merged PR #42, deployed to staging"
 ```
 
 ### Why claiming matters
-Tasks persist globally. Multiple sessions run concurrently (triggers, reminders, cron jobs). Each session has a unique `BEADS_ACTOR` (set automatically). When you `--claim`, the task is assigned to YOUR actor. The stop hook only blocks on tasks assigned to your actor — other sessions' tasks don't block you.
-
-### Teams and subagents
-When spawning team workers, have them set their own actor identity so their claims are scoped:
-```bash
-export BEADS_ACTOR=worker-<name>
-bd ready && bd update <id> --claim    # claimed under worker identity
-```
+Tasks persist globally. Multiple sessions run concurrently (triggers, reminders, cron jobs). When you `--claim`, the task is yours. The stop hook only blocks on tasks you claimed — other sessions' tasks don't block you. This happens automatically.
 
 ### Cross-session continuity
 When a session starts, `bd prime` shows all open tasks automatically. If you set a reminder for follow-up, the next session sees your open tasks and can continue where you left off.

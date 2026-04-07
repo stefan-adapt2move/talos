@@ -38,20 +38,19 @@ open --> in_progress (via --claim) --> closed (via bd close)
 
 ## Session Integration
 
-- **SessionStart**: sets `BEADS_DIR` and `BEADS_ACTOR` (= `session-<session_id>`), then runs `bd prime`
-- **Stop hook**: blocks exit if you have in_progress tasks assigned to YOUR `BEADS_ACTOR`
+- **SessionStart**: `bd prime` runs automatically — shows all open tasks
+- **Stop hook**: blocks exit if you have claimed but unclosed tasks
 - **Exit with open tasks**: write `echo "reason" > $BEADS_DIR/.suspend` (for reminders) or `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` (early exit)
-- **Teams/subagents**: override `BEADS_ACTOR` with a unique identity (e.g. `export BEADS_ACTOR=worker-<name>`) so each agent's claims are scoped independently
 
 ## Gotchas
 
 - `bd list --status` takes **one** value only. For compound filters use `bd query "status=open OR status=in_progress"`.
 - `bd dep add <A> <B>` means "A depends on B" (A is blocked by B). Order matters.
-- `bd close` requires `--reason` flag -- positional reason argument does NOT work.
+- `bd close` requires `--reason` flag — positional reason argument does NOT work.
 - `bd ready` returns unclaimed AND unblocked tasks. Claimed tasks (in_progress) are excluded.
 - IDs are hash-based (`agent-ps4`), not sequential. Always copy from output.
-- `--claim` sets assignee to `BEADS_ACTOR` and status to in_progress atomically. Different sessions/subagents get different actors.
-- `BEADS_DIR` and `BEADS_ACTOR` are set automatically by the SessionStart hook. Subagents should only override `BEADS_ACTOR`.
+- `--claim` sets assignee and status=in_progress atomically. Concurrent sessions won't conflict.
+- `BEADS_DIR` is set automatically by the SessionStart hook. Do not override.
 
 ## Patterns
 
