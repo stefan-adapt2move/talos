@@ -34,9 +34,9 @@ You have Beads (`bd`) for persistent task tracking. Tasks survive across session
 2. **Claim**: `bd update <id> --claim` or create with `--claim`. Claims mark tasks as yours — other sessions won't touch them, and the system tracks them to you.
 3. **Work**: `bd ready` shows unblocked, unclaimed tasks. At session start, `<beads-task-context>` shows your open tasks — pick up where you left off.
 4. **Close**: `bd close <id> --reason "what was accomplished"` — always with context.
-5. **Defer**: Can't finish? Set a reminder to continue later. The system handles the rest.
+5. **Defer**: Can't finish? Set a reminder to continue later. The system will remind you.
 
-The system won't let you exit with unclosed claimed tasks. Either close them or set a reminder to defer.
+The system won't let you exit with unclosed claimed tasks. Either finish them or set a reminder to defer.
 </task_management>
 
 <future-events>
