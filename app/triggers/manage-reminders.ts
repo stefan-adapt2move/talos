@@ -12,7 +12,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { writeFileSync } from "fs";
+import { execSync } from "child_process";
 import { openDb } from "../lib/db.ts";
 
 function die(msg: string): never {
@@ -192,17 +192,15 @@ switch (command) {
 
     const id = result.lastInsertRowid;
 
-    // Create Beads suspend file so the stop hook allows the session to exit.
-    // BEADS_ACTOR (e.g. "session-abc123") and BEADS_DIR are set via CLAUDE_ENV_FILE
-    // and available in Bash tool calls (which is how `reminder add` is invoked).
-    const beadsDir = process.env.BEADS_DIR;
-    const beadsActor = process.env.BEADS_ACTOR;
-    if (beadsDir && beadsActor) {
-      const sessionId = beadsActor.replace(/^session-/, "");
-      const suspendFile = `${beadsDir}/.suspend-${sessionId}`;
-      const suspendReason = `Reminder #${id}: "${title}" scheduled for ${fireAtLocal}`;
+    // Delegate suspend file creation to beads-session.sh write-suspend.
+    // This keeps the naming convention in one place (beads-session.sh owns the format).
+    if (process.env.BEADS_ACTOR) {
+      const reason = `Reminder #${id}: "${title}" scheduled for ${fireAtLocal}`;
       try {
-        writeFileSync(suspendFile, suspendReason);
+        execSync(`/atlas/app/hooks/beads-session.sh write-suspend "${reason.replace(/"/g, '\\"')}"`, {
+          stdio: ["ignore", "ignore", "inherit"],
+          env: { ...process.env },
+        });
       } catch (e) {
         console.error(`Warning: Could not create suspend file: ${e}`);
       }

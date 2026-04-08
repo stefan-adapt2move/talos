@@ -20,7 +20,7 @@ BEADS_DIR_PATH="$HOME/.beads"
 read_session_id() {
   if [ ! -t 0 ]; then
     local stdin_json
-    stdin_json=$(timeout 0.1 cat 2>/dev/null) || true
+    stdin_json=$(timeout 1 cat 2>/dev/null) || true
     echo "$stdin_json" | jq -r '.session_id // empty' 2>/dev/null || true
   fi
 }
@@ -53,7 +53,7 @@ case "${1:-help}" in
   prime)
     # Output task context for compaction and context recovery.
     SESSION_ID=$(read_session_id)
-    SUSPEND_FILE="$BEADS_DIR_PATH/.suspend${SESSION_ID:+-$SESSION_ID}"
+    SUSPEND_FILE="$BEADS_DIR_PATH/.suspend-${SESSION_ID}"
     if [ -f "$SUSPEND_FILE" ]; then
       echo "<beads-previous-suspend>"
       echo "Session was suspended: $(cat "$SUSPEND_FILE" 2>/dev/null)"
@@ -79,6 +79,7 @@ case "${1:-help}" in
     # Read session_id first — stdin is consumed once; must come before any file checks.
     SESSION_ID=$(read_session_id)
     if [ -z "${SESSION_ID:-}" ]; then
+      echo "beads-session.sh check: WARNING — empty session_id from stdin, cannot gate exit" >&2
       exit 0
     fi
     ACTOR="session-${SESSION_ID}"
@@ -110,7 +111,7 @@ case "${1:-help}" in
     # We read the conversation JSONL to detect it — the agent doesn't write files directly.
     CONV_FILE=$(find "$HOME/.claude/projects" -name "${SESSION_ID}.jsonl" -type f 2>/dev/null | head -1)
     if [ -n "$CONV_FILE" ] && [ -f "$CONV_FILE" ]; then
-      LAST_ASSISTANT=$(tail -10 "$CONV_FILE" 2>/dev/null \
+      LAST_ASSISTANT=$(tail -50 "$CONV_FILE" 2>/dev/null \
         | jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' 2>/dev/null \
         | tail -1)
       if echo "$LAST_ASSISTANT" | grep -q "NEED_TO_SUSPEND"; then
@@ -141,6 +142,22 @@ case "${1:-help}" in
     }'
     ;;
 
+  write-suspend)
+    # Creates a .suspend-<session_id> file so the stop hook allows exit.
+    # Called by manage-reminders.ts (or any script) that needs to suspend the current session.
+    # BEADS_ACTOR and BEADS_DIR are available as env vars in Bash tool context.
+    REASON="${2:-Session suspended}"
+    ACTOR="${BEADS_ACTOR:-}"
+    DIR="${BEADS_DIR:-$BEADS_DIR_PATH}"
+    if [ -z "$ACTOR" ]; then
+      echo "Error: No BEADS_ACTOR set — cannot write suspend file." >&2
+      exit 1
+    fi
+    SESSION_ID="${ACTOR#session-}"
+    echo "$REASON" > "$DIR/.suspend-${SESSION_ID}"
+    echo "Suspend file written for session ${SESSION_ID}."
+    ;;
+
   request-stop)
     # Called by the agent via Bash tool when it needs to exit with open tasks.
     # BEADS_ACTOR and BEADS_DIR are available as env vars in Bash tool context.
@@ -157,7 +174,7 @@ case "${1:-help}" in
     ;;
 
   *)
-    echo "Usage: beads-session.sh {start|prime|check|request-stop}" >&2
+    echo "Usage: beads-session.sh {start|prime|check|write-suspend|request-stop}" >&2
     exit 1
     ;;
 esac
