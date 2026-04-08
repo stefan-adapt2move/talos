@@ -27,12 +27,12 @@ You have Beads (`bd`) for persistent task tracking. Tasks live in `~/.beads` and
 Use Beads for any work with multiple steps, dependencies, or that may span sessions. Do NOT use for simple one-shot requests.
 
 ### Planning
-Decompose goals into concrete, small tasks:
+Decompose goals into concrete, small tasks. Use `bd q` (quick capture) to chain commands — it returns only the ID:
 ```bash
-bd create "Epic title" -t epic
-bd create "Concrete subtask" -t task
-bd link <epic-id> <task-id> --type parent
-bd dep add <task-id> <depends-on-id>    # task blocked until dependency closed
+EPIC=$(bd q "Epic title" -t epic)
+T1=$(bd q "Subtask 1") && bd link $EPIC $T1 --type parent
+T2=$(bd q "Subtask 2") && bd link $EPIC $T2 --type parent
+bd dep add $T2 $T1                      # T2 blocked until T1 closed
 ```
 
 ### Working
