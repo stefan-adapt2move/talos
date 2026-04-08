@@ -120,12 +120,27 @@ case "${1:-help}" in
 
     jq -n --arg count "$OPEN_COUNT" --arg tasks "$TASK_LIST" '{
       decision: "block",
-      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"reason\"\n- Stop with reason: echo \u0027{\"reason\":\"your justification\"}\u0027 > $BEADS_DIR/.stop-reason-$BEADS_ACTOR\n- Suspend for reminder: echo \"reason\" > $BEADS_DIR/.suspend-$BEADS_ACTOR")
+      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"what was done\"\n- Suspend: Set a reminder to continue later (the system handles the rest)\n- Force exit: /atlas/app/hooks/beads-session.sh request-stop \"your justification\"")
     }'
     ;;
 
+  request-stop)
+    # Called by the agent via Bash tool when it needs to exit with open tasks.
+    # BEADS_ACTOR and BEADS_DIR are available as env vars in Bash tool context.
+    REASON="${2:-Agent requested stop}"
+    ACTOR="${BEADS_ACTOR:-}"
+    DIR="${BEADS_DIR:-$BEADS_DIR_PATH}"
+    if [ -z "$ACTOR" ]; then
+      echo "Error: No BEADS_ACTOR set — cannot register stop reason." >&2
+      exit 1
+    fi
+    SESSION_ID="${ACTOR#session-}"
+    jq -n --arg r "$REASON" '{"reason":$r}' > "$DIR/.stop-reason-${SESSION_ID}"
+    echo "Stop reason registered. Session will exit cleanly."
+    ;;
+
   *)
-    echo "Usage: beads-session.sh {start|prime|check}" >&2
+    echo "Usage: beads-session.sh {start|prime|check|request-stop}" >&2
     exit 1
     ;;
 esac

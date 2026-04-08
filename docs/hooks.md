@@ -58,6 +58,12 @@ Runs after each response as a completion gate. Three exit paths:
 2. **Stop-reason file** — If `.stop-reason-<session_id>` exists: delete it, emit a `<beads-stop-reason>` block, and allow exit
 3. **Open tasks** — If `bd list --assignee <actor> --status in_progress` returns results: emit `{"decision":"block","reason":"..."}` JSON to block exit until tasks are closed
 
+### beads-session.sh request-stop (Bash tool)
+
+Not a hook — an escape hatch callable by the agent via Bash tool when it needs to exit with claimed tasks still open. Creates `.stop-reason-<session_id>` so the next stop hook invocation allows exit.
+
+Requires `BEADS_ACTOR` and `BEADS_DIR` env vars (set automatically by the start hook via `CLAUDE_ENV_FILE`).
+
 ## pre-compact-auto.sh
 
 Runs before automatic context compaction.

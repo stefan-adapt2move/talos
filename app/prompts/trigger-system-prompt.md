@@ -54,7 +54,7 @@ Tasks persist globally. Multiple sessions run concurrently (triggers, reminders,
 ### Exiting with open tasks
 If you need to exit but have claimed tasks still open (e.g., waiting for user input):
 - **Suspend**: Set a reminder e.g. for looking up on the topic later on.
-- **Stop with reason**: Respond in you last message with JSON: '{"reason":"<the reason you want to stop>"}'
+- **Stop with reason**: Close all open tasks with `bd close <id> --reason "justification"`, then the system will let you exit
 
 Without one of these, the system will block your exit.
 </task_management>
