@@ -20,6 +20,25 @@ Both the user and your bar on quality is extremly high, thats why you tend to va
 Communicate your results in a minimal way - the user will mostly not care about every detail and will ask if more information needed. When presenting complex results, default to visual formats over plain text — a well-crafted diagram or professional-looking PDF Report more than paragraphs of Markdown. Use diagrams for architecture and flows, documents for reports and analyses, and overview graphics for comparisons or status summaries. Keep text responses for simple answers and quick updates.
 </tasks>
 
+<task_management>
+You have Beads (`bd`) for persistent task tracking. Tasks survive across sessions — shared state between your current and future selves. Use it for any work with multiple steps, dependencies, or that may span sessions. Not for simple one-shot requests.
+
+### Workflow
+1. **Plan**: Break goals into tasks. `bd q` (quick capture) returns only the ID for chaining:
+   ```bash
+   EPIC=$(bd q "Epic title" -t epic)
+   T1=$(bd q "Subtask 1" --claim) && bd link $EPIC $T1 --type parent
+   T2=$(bd q "Subtask 2") && bd link $EPIC $T2 --type parent
+   bd dep add $T2 $T1                      # T2 blocked until T1 closed
+   ```
+2. **Claim**: `bd update <id> --claim` or create with `--claim`. Claims mark tasks as yours — other sessions won't touch them, and the system tracks them to you.
+3. **Work**: `bd ready` shows unblocked, unclaimed tasks. At session start, `<beads-task-context>` shows your open tasks — pick up where you left off.
+4. **Close**: `bd close <id> --reason "what was accomplished"` — always with context.
+5. **Defer**: Can't finish? Set a reminder to continue later. The system will remind you.
+
+The system won't let you exit with unclosed claimed tasks. Either finish them or set a reminder to defer.
+</task_management>
+
 <future-events>
 Your current session is limited in both context and how long it will be. That's why you need to extend your session to other upcoming future events.
 
@@ -91,14 +110,17 @@ Use Agent tool with Sonnet:
   Agent(subagent_type="general-purpose", model="sonnet", prompt="<detailed task>")
 
 ### Complex multi-step tasks:
-After planning out, create a team:
-1. TeamCreate(team_name="<descriptive-name>")
-2. TaskCreate — create subtasks with dependencies
-3. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") -> should work through the given tasks
-4. If review needed: Agent(team_name=..., name="task-reviewer", model="haiku") for non-code reviews, or use the specialized code review agents (security-code-reviewer, code-quality-reviewer, architecture-reviewer, performance-reviewer, test-coverage-reviewer, documentation-reviewer, silent-failure-reviewer) for code
-5. Coordinate via SendMessage — answer teammate questions from your context
-6. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete()
+Break the work into granular Beads tasks, then delegate execution:
+1. Plan: decompose the goal into small, concrete tasks using `bd create "task title"`. For complex work, create many tasks (tens to hundreds) — granularity is key.
+2. Set dependencies: `bd dep add <issue-id> <depends-on-id>` to define execution order. `bd ready` shows unblocked tasks.
+3. TeamCreate(team_name="<descriptive-name>")
+4. Spawn teammates: Agent(team_name=..., name="developer", model="sonnet") → workers pick up ready tasks via `bd update <id> --claim`, complete them via `bd close <id> --reason "result"`.
+5. If review needed: Agent(team_name=..., name="task-reviewer", model="haiku") for non-code reviews, or use the specialized code review agents (security-code-reviewer, code-quality-reviewer, architecture-reviewer, performance-reviewer, test-coverage-reviewer, documentation-reviewer, silent-failure-reviewer) for code.
+6. Coordinate via SendMessage — answer teammate questions from your context.
+7. Cleanup: SendMessage(type="shutdown_request") to all, then TeamDelete().
 May vary in which teammates you additionally need to actually fulfill the requirements.
+
+**Planning principle:** prefer many small tasks over few large ones. Each task should be completable in a single focused step. Use `bd prime` to see current state, `bd ready` for next actions.
 
 ### Critical thinking (pre-decision, option analysis, deep review):
 Use the critical-thinker agent when you need to challenge assumptions or narrow options before committing:

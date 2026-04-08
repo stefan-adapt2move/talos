@@ -28,23 +28,12 @@ const failureEnvContent = [
 ].join("\n");
 writeFileSync(HOME + "/.failure-env", failureEnvContent);
 
-const stopCompletionPrompt = [
-  "Review this session to determine if it can safely exit.",
-  "",
-  "If this session did NOT create any teams (no TeamCreate calls) and is not a trigger session handling external messages, respond: {\"ok\": true}",
-  "",
-  "Otherwise, check:",
-  "1. **Team lifecycle**: Were all teams properly shut down? (SendMessage shutdown_request to each teammate, then TeamDelete)",
-  "2. **Task completion**: Were all created tasks completed? Check for TaskUpdate(status=completed) for each TaskCreate.",
-  "3. **Response delivery**: If this session was triggered by an external message (Signal, Email, Web), was a response sent using the appropriate channel CLI tool (signal send, email reply, etc.)?",
-  "4. **Original request**: Was the triggering task/prompt fully addressed?",
-  "",
-  "Respond with JSON:",
-  '{"ok": true} — if the session can safely exit',
-  '{"ok": false, "reason": "brief explanation of what is unfinished"} — if work is clearly incomplete',
-  "",
-  "Be pragmatic: only block if there is concrete unfinished work visible in the conversation. Do not block for minor cleanup.",
-].join("\n");
+// Beads session-isolated hooks — each session gets its own .beads/ directory
+const beadsSessionScript = "/atlas/app/hooks/beads-session.sh";
+
+// No prompt-based stop hook — the Beads command hook (beads-session.sh check)
+// handles task completion gating via RalphLoop-style {"decision":"block"} JSON.
+// Team lifecycle and response delivery are handled by system prompt instructions.
 
 const subagentStopPrompt = [
   "A team member has completed their task. Review the result in $ARGUMENTS.",
@@ -91,10 +80,6 @@ const settings: Record<string, unknown> = {
       "Agent",
       "TeamCreate",
       "TeamDelete",
-      "TaskCreate",
-      "TaskUpdate",
-      "TaskList",
-      "TaskGet",
       "SendMessage",
       "mcp__*",
     ],
@@ -105,6 +90,11 @@ const settings: Record<string, unknown> = {
       "Edit(/atlas/logs/**)",
       "Write(/home/agent/.claude/settings.json)",
       "Edit(/home/agent/.claude/settings.json)",
+      "TodoWrite",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
     ],
   },
   hooks: {
@@ -112,6 +102,7 @@ const settings: Record<string, unknown> = {
       {
         hooks: [
           { type: "command", command: "/atlas/app/hooks/session-start.sh" },
+          { type: "command", command: `${beadsSessionScript} start` },
         ],
       },
     ],
@@ -119,11 +110,7 @@ const settings: Record<string, unknown> = {
       {
         hooks: [
           { type: "command", command: "/atlas/app/hooks/stop.sh" },
-          {
-            type: "prompt",
-            prompt: stopCompletionPrompt,
-            model: subagentReviewModel,
-          },
+          { type: "command", command: `${beadsSessionScript} check` },
         ],
       },
     ],
@@ -132,6 +119,7 @@ const settings: Record<string, unknown> = {
         matcher: "auto",
         hooks: [
           { type: "command", command: "/atlas/app/hooks/pre-compact-auto.sh" },
+          { type: "command", command: `${beadsSessionScript} prime` },
         ],
       },
       {
@@ -141,6 +129,7 @@ const settings: Record<string, unknown> = {
             type: "command",
             command: "/atlas/app/hooks/pre-compact-manual.sh",
           },
+          { type: "command", command: `${beadsSessionScript} prime` },
         ],
       },
     ],

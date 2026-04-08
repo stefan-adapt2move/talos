@@ -12,6 +12,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { writeFileSync } from "fs";
 import { openDb } from "../lib/db.ts";
 
 function die(msg: string): never {
@@ -190,6 +191,23 @@ switch (command) {
     ).run(title, prompt, fireAt, channel, triggerName, sessionKey);
 
     const id = result.lastInsertRowid;
+
+    // Create Beads suspend file so the stop hook allows the session to exit.
+    // BEADS_ACTOR (e.g. "session-abc123") and BEADS_DIR are set via CLAUDE_ENV_FILE
+    // and available in Bash tool calls (which is how `reminder add` is invoked).
+    const beadsDir = process.env.BEADS_DIR;
+    const beadsActor = process.env.BEADS_ACTOR;
+    if (beadsDir && beadsActor) {
+      const sessionId = beadsActor.replace(/^session-/, "");
+      const suspendFile = `${beadsDir}/.suspend-${sessionId}`;
+      const suspendReason = `Reminder #${id}: "${title}" scheduled for ${fireAtLocal}`;
+      try {
+        writeFileSync(suspendFile, suspendReason);
+      } catch (e) {
+        console.error(`Warning: Could not create suspend file: ${e}`);
+      }
+    }
+
     console.log(`Reminder #${id} scheduled: "${title}"`);
     console.log(`  Fire at: ${fireAtLocal}`);
     console.log(`  Channel: ${channel}`);

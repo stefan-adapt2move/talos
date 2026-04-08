@@ -31,17 +31,39 @@ Runs after Claude finishes a response.
 
 For trigger sessions (`ATLAS_TRIGGER` is set), the stop hook checks if a journal file for today exists in `memory/journal/`. If no file matching `YYYY-MM-DD*.md` is found, it outputs a `<system-notice>` reminding the session to write a journal entry before ending.
 
-## Stop Completion Check (prompt-type hook)
+## beads-session.sh
 
-Configured in `settings.json` as a prompt-type hook alongside `stop.sh`. Uses the `subagent_review` model (sonnet) to dynamically evaluate whether the session can safely exit.
+Manages Beads task context across session lifecycle events. Configured as command-type hooks in `settings.json`.
 
-The model reviews the conversation for:
-1. **Team lifecycle** — Were all teams shut down (shutdown_request + TeamDelete)?
-2. **Task completion** — Were all created tasks completed?
-3. **Response delivery** — Was a response sent via the channel CLI tool?
-4. **Original request** — Was the triggering task fully addressed?
+### beads-session.sh start (SessionStart hook)
 
-Sessions without teams or external messages (e.g. simple agent workers) pass immediately. This naturally scopes to the current session's teams since the model only sees this session's conversation — parallel sessions' teams are invisible.
+Runs when any Claude Code session starts.
+
+- Writes `export BEADS_DIR` and `export BEADS_ACTOR` to `CLAUDE_ENV_FILE` so all subsequent Bash tool calls inherit them
+- Derives `BEADS_ACTOR` (as `session-<session_id>`) from the session_id in hook stdin JSON, falling back to `ATLAS_TRIGGER_SESSION_KEY`
+- Runs `bd prime` and wraps output in `<beads-task-context>` to surface open task context at session start
+
+### beads-session.sh prime (PreCompact hook)
+
+Runs before automatic or manual context compaction.
+
+- Checks for a `.suspend-<session_id>` file from a previous session; if found, outputs a `<beads-previous-suspend>` block with the reason
+- Runs `bd prime` wrapped in `<beads-task-context>` to inject task state so the compacted context retains task continuity
+
+### beads-session.sh check (Stop hook)
+
+Runs after each response as a completion gate. Four exit paths (checked in order):
+
+1. **Suspend file** — If `.suspend-<session_id>` exists (created by `reminder add`): delete it, emit `<beads-session-suspended>`, allow exit
+2. **Stop-reason file** — If `.stop-reason-<session_id>` exists (created by `request-stop`): delete it, emit `<beads-stop-reason>`, allow exit
+3. **NEED_TO_SUSPEND in last message** — Reads the conversation JSONL (`~/.claude/projects/-home-agent/<session_id>.jsonl`), checks last assistant message for `NEED_TO_SUSPEND` keyword. If found, emit `<beads-session-suspended>`, allow exit. This lets the agent suspend by simply outputting text — no file-writing needed.
+4. **Open tasks** — If `bd list --assignee <actor> --status in_progress` returns results: emit `{"decision":"block","reason":"..."}` JSON to block exit until tasks are closed
+
+### beads-session.sh request-stop (Bash tool)
+
+Not a hook — an escape hatch callable by the agent via Bash tool when it needs to exit with claimed tasks still open. Creates `.stop-reason-<session_id>` so the next stop hook invocation allows exit.
+
+Requires `BEADS_ACTOR` and `BEADS_DIR` env vars (set automatically by the start hook via `CLAUDE_ENV_FILE`).
 
 ## pre-compact-auto.sh
 
@@ -71,6 +93,7 @@ Configured via `generate-settings.ts` — the model used for this review is set 
 
 - `app/hooks/session-start.sh` — Context loading
 - `app/hooks/stop.sh` — Session lifecycle
+- `app/hooks/beads-session.sh` — Beads task context (SessionStart, PreCompact, Stop)
 - `app/hooks/pre-compact-auto.sh` — Memory flush (auto compaction)
 - `app/hooks/pre-compact-manual.sh` — Memory flush (manual compaction)
 - `app/hooks/generate-settings.ts` — Generates `~/.claude/settings.json` with hook config
