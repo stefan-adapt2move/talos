@@ -52,11 +52,12 @@ Runs before automatic or manual context compaction.
 
 ### beads-session.sh check (Stop hook)
 
-Runs after each response as a completion gate. Three exit paths:
+Runs after each response as a completion gate. Four exit paths (checked in order):
 
-1. **Suspend file** — If `.suspend-<session_id>` exists: delete it, emit a `<beads-session-suspended>` notice, and allow exit
-2. **Stop-reason file** — If `.stop-reason-<session_id>` exists: delete it, emit a `<beads-stop-reason>` block, and allow exit
-3. **Open tasks** — If `bd list --assignee <actor> --status in_progress` returns results: emit `{"decision":"block","reason":"..."}` JSON to block exit until tasks are closed
+1. **Suspend file** — If `.suspend-<session_id>` exists (created by `reminder add`): delete it, emit `<beads-session-suspended>`, allow exit
+2. **Stop-reason file** — If `.stop-reason-<session_id>` exists (created by `request-stop`): delete it, emit `<beads-stop-reason>`, allow exit
+3. **NEED_TO_SUSPEND in last message** — Reads the conversation JSONL (`~/.claude/projects/-home-agent/<session_id>.jsonl`), checks last assistant message for `NEED_TO_SUSPEND` keyword. If found, emit `<beads-session-suspended>`, allow exit. This lets the agent suspend by simply outputting text — no file-writing needed.
+4. **Open tasks** — If `bd list --assignee <actor> --status in_progress` returns results: emit `{"decision":"block","reason":"..."}` JSON to block exit until tasks are closed
 
 ### beads-session.sh request-stop (Bash tool)
 

@@ -21,42 +21,22 @@ Communicate your results in a minimal way - the user will mostly not care about 
 </tasks>
 
 <task_management>
-You have Beads (`bd`) for persistent task tracking. Tasks live in `~/.beads` and survive across sessions — they are shared state between your current and future sessions.
+You have Beads (`bd`) for persistent task tracking. Tasks survive across sessions — shared state between your current and future selves. Use it for any work with multiple steps, dependencies, or that may span sessions. Not for simple one-shot requests.
 
-### When to use Beads
-Use Beads for any work with multiple steps, dependencies, or that may span sessions. Do NOT use for simple one-shot requests.
+### Workflow
+1. **Plan**: Break goals into tasks. `bd q` (quick capture) returns only the ID for chaining:
+   ```bash
+   EPIC=$(bd q "Epic title" -t epic)
+   T1=$(bd q "Subtask 1" --claim) && bd link $EPIC $T1 --type parent
+   T2=$(bd q "Subtask 2") && bd link $EPIC $T2 --type parent
+   bd dep add $T2 $T1                      # T2 blocked until T1 closed
+   ```
+2. **Claim**: `bd update <id> --claim` or create with `--claim`. Claims mark tasks as yours — other sessions won't touch them, and the system tracks them to you.
+3. **Work**: `bd ready` shows unblocked, unclaimed tasks. At session start, `<beads-task-context>` shows your open tasks — pick up where you left off.
+4. **Close**: `bd close <id> --reason "what was accomplished"` — always with context.
+5. **Defer**: Can't finish? Set a reminder to continue later. The system handles the rest.
 
-### Planning
-Decompose goals into concrete, small tasks. Use `bd q` (quick capture) to chain commands — it returns only the ID:
-```bash
-EPIC=$(bd q "Epic title" -t epic)
-T1=$(bd q "Subtask 1") && bd link $EPIC $T1 --type parent
-T2=$(bd q "Subtask 2") && bd link $EPIC $T2 --type parent
-bd dep add $T2 $T1                      # T2 blocked until T1 closed
-```
-
-### Working
-Claim a task before starting. This signals to other sessions that it's in progress:
-```bash
-bd ready                                # See unblocked, unclaimed tasks
-bd update <id> --claim                  # Atomically: assignee=you + status=in_progress
-```
-
-### Completing
-Always close with context about what was done:
-```bash
-bd close <id> --reason "Merged PR #42, deployed to staging"
-```
-
-### Why claiming matters
-Tasks persist globally. Multiple sessions run concurrently (triggers, reminders, cron jobs). When you `--claim`, the task is yours. The stop hook only blocks on tasks you claimed — other sessions' tasks don't block you. This happens automatically.
-
-### Exiting with open tasks
-If you need to exit but have claimed tasks still open (e.g., waiting for user input):
-- **Suspend**: Set a reminder e.g. for looking up on the topic later on.
-- **Stop with reason**: Close all open tasks with `bd close <id> --reason "justification"`, then the system will let you exit
-
-Without one of these, the system will block your exit.
+The system won't let you exit with unclosed claimed tasks. Either close them or set a reminder to defer.
 </task_management>
 
 <future-events>

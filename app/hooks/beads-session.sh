@@ -67,10 +67,11 @@ case "${1:-help}" in
 
   check)
     # Stop hook completion gate.
-    # Three exit paths:
-    #   1. .suspend-<session> file exists → delete + allow exit
-    #   2. .stop-reason-<session> file exists → delete + allow exit
-    #   3. in_progress tasks owned by THIS session → block
+    # Four exit paths (checked in order):
+    #   1. .suspend-<session> file exists (from reminder add) → allow exit
+    #   2. .stop-reason-<session> file exists (from request-stop) → allow exit
+    #   3. NEED_TO_SUSPEND in last assistant message (from JSONL) → allow exit
+    #   4. in_progress tasks owned by THIS session → block
     #
     # Session-scoped files prevent race conditions when multiple sessions
     # run concurrently — each session only consumes its own signal files.
@@ -93,7 +94,7 @@ case "${1:-help}" in
       exit 0
     fi
 
-    # Path 2: Stop-reason protocol
+    # Path 2: Stop-reason file (created by request-stop or manage-reminders)
     STOP_REASON_FILE="$BEADS_DIR_PATH/.stop-reason-${SESSION_ID}"
     if [ -f "$STOP_REASON_FILE" ]; then
       STOP_REASON=$(cat "$STOP_REASON_FILE" 2>/dev/null || echo '{"reason":"Agent requested stop"}')
@@ -102,6 +103,22 @@ case "${1:-help}" in
       echo "$STOP_REASON"
       echo "</beads-stop-reason>"
       exit 0
+    fi
+
+    # Path 3: NEED_TO_SUSPEND in last assistant message
+    # The agent outputs this text when it genuinely can't continue (e.g. waiting for user).
+    # We read the conversation JSONL to detect it — the agent doesn't write files directly.
+    CONV_FILE=$(find "$HOME/.claude/projects" -name "${SESSION_ID}.jsonl" -type f 2>/dev/null | head -1)
+    if [ -n "$CONV_FILE" ] && [ -f "$CONV_FILE" ]; then
+      LAST_ASSISTANT=$(tail -10 "$CONV_FILE" 2>/dev/null \
+        | jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' 2>/dev/null \
+        | tail -1)
+      if echo "$LAST_ASSISTANT" | grep -q "NEED_TO_SUSPEND"; then
+        echo "<beads-session-suspended>"
+        echo "Agent requested suspension via NEED_TO_SUSPEND."
+        echo "</beads-session-suspended>"
+        exit 0
+      fi
     fi
 
     TASK_OUTPUT=$(BEADS_DIR="$BEADS_DIR_PATH" bd list --assignee "$ACTOR" --status in_progress --json 2>/dev/null) || true
@@ -120,7 +137,7 @@ case "${1:-help}" in
 
     jq -n --arg count "$OPEN_COUNT" --arg tasks "$TASK_LIST" '{
       decision: "block",
-      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"what was done\"\n- Suspend: Set a reminder to continue later (the system handles the rest)\n- Force exit: /atlas/app/hooks/beads-session.sh request-stop \"your justification\"")
+      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly:\n- Finish your work and close tasks: bd close <id> --reason \"what was done\"\n- Set a reminder to continue later (system handles the rest)\n- If you really need to stop (e.g. waiting for user input), output NEED_TO_SUSPEND in your response")
     }'
     ;;
 
