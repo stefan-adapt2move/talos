@@ -41,7 +41,7 @@ open --> in_progress (via --claim) --> closed (via bd close)
 
 - **SessionStart**: `bd prime` runs automatically — shows all open tasks
 - **Stop hook**: blocks exit if you have claimed but unclosed tasks
-- **Exit with open tasks**: write `echo "reason" > $BEADS_DIR/.suspend` (for reminders) or `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` (early exit)
+- **Exit with open tasks**: write `echo "reason" > $BEADS_DIR/.suspend-$BEADS_ACTOR` (for reminders) or `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason-$BEADS_ACTOR` (early exit)
 
 ## Gotchas
 

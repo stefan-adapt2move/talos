@@ -88,6 +88,9 @@ Hooks inject context at lifecycle events:
 | stop.sh | After response | Journal reminder (trigger sessions) |
 | pre-compact-*.sh | Before compaction | Prompt memory flush |
 | SubagentStop | Agent teammate finishes | Quality gate (prompt-type review) |
+| beads-session.sh start | Every session starts | Load Beads task context, set env |
+| beads-session.sh prime | Before compaction | Inject task state for context recovery |
+| beads-session.sh check | Stop hook | Gate exit on unclosed claimed tasks |
 
 See [hooks.md](hooks.md) for details.
 

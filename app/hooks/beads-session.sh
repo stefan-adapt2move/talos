@@ -52,9 +52,11 @@ case "${1:-help}" in
 
   prime)
     # Output task context for compaction and context recovery.
-    if [ -f "$BEADS_DIR_PATH/.suspend" ]; then
+    SESSION_ID=$(read_session_id)
+    SUSPEND_FILE="$BEADS_DIR_PATH/.suspend${SESSION_ID:+-$SESSION_ID}"
+    if [ -f "$SUSPEND_FILE" ]; then
       echo "<beads-previous-suspend>"
-      echo "Session was suspended: $(cat "$BEADS_DIR_PATH/.suspend" 2>/dev/null)"
+      echo "Session was suspended: $(cat "$SUSPEND_FILE" 2>/dev/null)"
       echo "Review open tasks below and continue where the previous session left off."
       echo "</beads-previous-suspend>"
     fi
@@ -66,12 +68,22 @@ case "${1:-help}" in
   check)
     # Stop hook completion gate.
     # Three exit paths:
-    #   1. .suspend file exists → delete + allow exit
-    #   2. .stop-reason file exists → delete + allow exit
+    #   1. .suspend-<session> file exists → delete + allow exit
+    #   2. .stop-reason-<session> file exists → delete + allow exit
     #   3. in_progress tasks owned by THIS session → block
+    #
+    # Session-scoped files prevent race conditions when multiple sessions
+    # run concurrently — each session only consumes its own signal files.
+
+    # Read session_id first — stdin is consumed once; must come before any file checks.
+    SESSION_ID=$(read_session_id)
+    if [ -z "${SESSION_ID:-}" ]; then
+      exit 0
+    fi
+    ACTOR="session-${SESSION_ID}"
 
     # Path 1: Suspend protocol
-    SUSPEND_FILE="$BEADS_DIR_PATH/.suspend"
+    SUSPEND_FILE="$BEADS_DIR_PATH/.suspend-${SESSION_ID}"
     if [ -f "$SUSPEND_FILE" ]; then
       SUSPEND_REASON=$(cat "$SUSPEND_FILE" 2>/dev/null || echo "Session suspended")
       rm -f "$SUSPEND_FILE"
@@ -82,7 +94,7 @@ case "${1:-help}" in
     fi
 
     # Path 2: Stop-reason protocol
-    STOP_REASON_FILE="$BEADS_DIR_PATH/.stop-reason"
+    STOP_REASON_FILE="$BEADS_DIR_PATH/.stop-reason-${SESSION_ID}"
     if [ -f "$STOP_REASON_FILE" ]; then
       STOP_REASON=$(cat "$STOP_REASON_FILE" 2>/dev/null || echo '{"reason":"Agent requested stop"}')
       rm -f "$STOP_REASON_FILE"
@@ -91,13 +103,6 @@ case "${1:-help}" in
       echo "</beads-stop-reason>"
       exit 0
     fi
-
-    # Path 3: Derive actor from stdin session_id (NOT from env — hooks don't inherit CLAUDE_ENV_FILE)
-    SESSION_ID=$(read_session_id)
-    if [ -z "${SESSION_ID:-}" ]; then
-      exit 0
-    fi
-    ACTOR="session-${SESSION_ID}"
 
     TASK_OUTPUT=$(BEADS_DIR="$BEADS_DIR_PATH" bd list --assignee "$ACTOR" --status in_progress --json 2>/dev/null) || true
 
@@ -115,7 +120,7 @@ case "${1:-help}" in
 
     jq -n --arg count "$OPEN_COUNT" --arg tasks "$TASK_LIST" '{
       decision: "block",
-      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"reason\"\n- Stop with reason: echo \u0027{\"reason\":\"your justification\"}\u0027 > $BEADS_DIR/.stop-reason\n- Suspend for reminder: echo \"reason\" > $BEADS_DIR/.suspend")
+      reason: ("You have " + $count + " in-progress Beads task(s). Complete or close them before exiting:\n" + $tasks + "\n\nTo exit cleanly, either:\n- Close tasks: bd close <id> --reason \"reason\"\n- Stop with reason: echo \u0027{\"reason\":\"your justification\"}\u0027 > $BEADS_DIR/.stop-reason-$BEADS_ACTOR\n- Suspend for reminder: echo \"reason\" > $BEADS_DIR/.suspend-$BEADS_ACTOR")
     }'
     ;;
 

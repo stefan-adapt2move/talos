@@ -52,11 +52,11 @@ bd close <id> --reason "Merged PR #42, deployed to staging"
 Tasks persist globally. Multiple sessions run concurrently (triggers, reminders, cron jobs). When you `--claim`, the task is yours. The stop hook only blocks on tasks you claimed — other sessions' tasks don't block you. This happens automatically.
 
 ### Exiting with open tasks
-If you need to exit but have claimed tasks still open (e.g., waiting for user input, setting a reminder):
-- **Suspend**: `echo "reason" > $BEADS_DIR/.suspend` — for reminder-triggered pauses
-- **Stop with reason**: `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` — for any justified early exit
+If you need to exit but have claimed tasks still open (e.g., waiting for user input):
+- **Suspend**: Set a reminder e.g. for looking up on the topic later on.
+- **Stop with reason**: Respond in you last message with JSON: '{"reason":"<the reason you want to stop>"}'
 
-Without one of these, the stop hook will block your exit.
+Without one of these, the system will block your exit.
 </task_management>
 
 <future-events>
