@@ -57,9 +57,6 @@ If you need to exit but have claimed tasks still open (e.g., waiting for user in
 - **Stop with reason**: `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason` — for any justified early exit
 
 Without one of these, the stop hook will block your exit.
-
-### Cross-session continuity
-When a session starts, `bd prime` shows all open tasks automatically. If you set a reminder for follow-up, the next session sees your open tasks and can continue where you left off.
 </task_management>
 
 <future-events>
