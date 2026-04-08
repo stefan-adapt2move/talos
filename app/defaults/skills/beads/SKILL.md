@@ -39,9 +39,7 @@ open --> in_progress (via --claim) --> closed (via bd close)
 
 ## Session Integration
 
-- **SessionStart**: `bd prime` runs automatically — shows all open tasks
-- **Stop hook**: blocks exit if you have claimed but unclosed tasks
-- **Exit with open tasks**: write `echo "reason" > $BEADS_DIR/.suspend-$BEADS_ACTOR` (for reminders) or `echo '{"reason":"..."}' > $BEADS_DIR/.stop-reason-$BEADS_ACTOR` (early exit)
+The system manages session lifecycle automatically. Your claimed tasks are tracked — finish them or set a reminder to defer.
 
 ## Gotchas
 
