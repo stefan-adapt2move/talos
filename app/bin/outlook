@@ -1,0 +1,8 @@
+#!/bin/bash
+# Outlook email CLI wrapper — reads O365 credentials from env vars or secrets files
+export OUTLOOK_TENANT_ID="${OUTLOOK_TENANT_ID:-$(cat /home/agent/secrets/outlook-tenant-id 2>/dev/null || echo '')}"
+export OUTLOOK_CLIENT_ID="${OUTLOOK_CLIENT_ID:-$(cat /home/agent/secrets/outlook-client-id 2>/dev/null || echo '')}"
+export OUTLOOK_CLIENT_SECRET="${OUTLOOK_CLIENT_SECRET:-$(cat /home/agent/secrets/outlook-client-secret 2>/dev/null || echo '')}"
+export OUTLOOK_MAILBOX="${OUTLOOK_MAILBOX:-$(cat /home/agent/secrets/outlook-mailbox 2>/dev/null || echo '')}"
+export OUTLOOK_ALLOWED_SENDERS="${OUTLOOK_ALLOWED_SENDERS:-$(cat /home/agent/secrets/outlook-allowed-senders 2>/dev/null || echo '')}"
+exec python3 /atlas/app/integrations/email/outlook.py "$@"

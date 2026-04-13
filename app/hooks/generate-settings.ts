@@ -61,6 +61,7 @@ const settings: Record<string, unknown> = {
     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_MODEL: mainModel,
+    CLAUDE_CODE_DISABLE_THINK: "1",
   },
   attribution: {
     commit: commitAttribution,
