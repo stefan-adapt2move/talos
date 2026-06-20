@@ -145,7 +145,14 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/secrets \
   /home/agent/helpers \
   && chown -R agent:agent /home/agent \
-  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs
+  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs \
+  # Backward-compat symlinks for this fork: volume configs (config.yml token_file,
+  # cloudflared/tunnel-update commands, email password_file) still reference the
+  # pre-rename /home/talos, /home/atlas and /talos paths. Map them to the canonical
+  # /home/agent and /atlas so existing volume state keeps working.
+  && ln -sfn /home/agent /home/talos \
+  && ln -sfn /home/agent /home/atlas \
+  && ln -sfn /atlas /talos
 
 # Copy application code (root-owned — agent should not modify system code)
 COPY app/ /atlas/app/
