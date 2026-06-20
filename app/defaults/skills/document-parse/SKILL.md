@@ -1,6 +1,6 @@
 ---
 name: document-parse
-description: Use this skill when the user asks to parse, perform multi-format document conversion or when you want to spatially extract text from an unstructured file (PDF, DOCX, PPTX, XLSX, images, etc.).
+description: "Use this skill to READ / EXTRACT / PARSE / OCR existing documents — pull text and structure out of PDF, DOCX, PPTX, XLSX, EPUB, HTML, images (JPG/PNG/TIFF/WebP), scanned-document PDFs, or any unstructured file. Triggers: 'parse this PDF', 'extract text', 'OCR this image', 'text aus scan', 'lies das Dokument', 'convert PDF to markdown', 'erkenne Text', 'transcribe document', 'spatial layout extraction', plus any time the user provides a file and asks what's inside. Runs LiteParse locally — Tesseract.js OCR built-in, optional external OCR server (EasyOCR / PaddleOCR) for higher accuracy. Output is clean markdown ready for downstream LLM processing. Do NOT use for: (1) CREATING a new PDF from scratch — use the `pdf` skill. (2) Filling forms in an existing PDF — see `pdf` skill `forms.md`. (3) Pure speech-to-text from audio/video — use the `stt` skill."
 ---
 
 # Document to Text
@@ -112,6 +112,24 @@ lit parse document.pdf --config liteparse.config.json
 ```
 
 ---
+
+## Non-ASCII / Internationalization
+
+OCR is the main source of Umlaut/diacritic corruption — Tesseract defaults to English and will misread `ä` as `a` or `ö` as `6`. Always set the language explicitly for non-English documents:
+
+```bash
+# Single language
+lit parse vertrag.pdf --ocr-language deu
+
+# Multiple languages (e.g. German + English in one document)
+lit parse mixed.pdf --ocr-language "deu+eng"
+```
+
+Common ISO codes: `deu` (German), `fra` (French), `spa` (Spanish), `ita` (Italian), `por` (Portuguese), `nld` (Dutch), `pol` (Polish), `rus` (Russian), `jpn` (Japanese), `chi_sim`/`chi_tra` (Chinese). For higher accuracy on Umlaut-heavy material, route to a stronger backend via `--ocr-server-url` (PaddleOCR, EasyOCR).
+
+**Reading the output**: `lit` writes UTF-8. When loading the result in Python use `open(path, encoding="utf-8")` — never rely on the platform default. If you see `Ã¤` / `Ã¶` / `Ã¼` in output, the file was decoded as Latin-1; re-read with explicit UTF-8.
+
+**Embedded text PDFs**: `--no-ocr` skips OCR entirely and pulls the embedded text layer, which is already correctly encoded — preferred when the PDF is digital-native.
 
 ## Supported Input Formats
 

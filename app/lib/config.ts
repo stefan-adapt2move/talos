@@ -204,6 +204,7 @@ function buildEnvMappings(prefix: string): EnvMapping[] {
     { env: `${p}EMAIL_FOLDER`, aliases: atlasAlias("EMAIL_FOLDER"), path: "email.folder", type: "string" },
     { env: `${p}EMAIL_WHITELIST`, aliases: atlasAlias("EMAIL_WHITELIST"), path: "email.whitelist", type: "string[]" },
     { env: `${p}EMAIL_MARK_READ`, aliases: atlasAlias("EMAIL_MARK_READ"), path: "email.mark_read", type: "boolean" },
+    { env: `${p}EMAIL_IDLE_TIMEOUT`, aliases: [...(atlasAlias("EMAIL_IDLE_TIMEOUT") ?? []), "EMAIL_IDLE_TIMEOUT"], path: "email.idle_timeout", type: "number" },
     { env: `${p}DAILY_CLEANUP_ENABLED`, aliases: atlasAlias("DAILY_CLEANUP_ENABLED"), path: "daily_cleanup.enabled", type: "boolean" },
     { env: `${p}DAILY_CLEANUP_RETENTION_DAYS`, aliases: atlasAlias("DAILY_CLEANUP_RETENTION_DAYS"), path: "daily_cleanup.retention_days", type: "number" },
     { env: `${p}DAILY_CLEANUP_METRICS_RETENTION_DAYS`, aliases: atlasAlias("DAILY_CLEANUP_METRICS_RETENTION_DAYS"), path: "daily_cleanup.metrics_retention_days", type: "number" },

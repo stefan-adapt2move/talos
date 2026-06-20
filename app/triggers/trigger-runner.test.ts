@@ -5,8 +5,8 @@
  * Run with: cd app/triggers && bun test
  */
 
-import { test, describe, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { test, describe, expect, beforeAll, beforeEach, afterAll, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Database } from "bun:sqlite";
@@ -15,21 +15,30 @@ import type { Server } from "net";
 
 import {
   buildSystemPrompt,
+  buildInjectMessage,
   resolveModel,
   getMcpServers,
   safePlaceholderReplace,
   readTriggerConfig,
   recordMetrics,
   checkCorruptedSession,
-  tryIpcInject,
   createMessageChannel,
   getSocketPath,
   startSocketServer,
   trySocketInject,
   cleanupSocket,
+  persistStreamChunk,
+  aggregateRunCost,
+  modelFamily,
+  MODEL_PRICING,
+  is400UpstreamError,
+  clearSessionOn400,
   type TriggerConfig,
   type MetricsData,
+  type StreamChunkState,
+  type AggregatedUsage,
 } from "./trigger-runner.ts";
+import { migrateSchema } from "../lib/atlas-db.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,6 +58,7 @@ function createInMemoryDb(): Database {
       channel TEXT DEFAULT 'internal',
       prompt TEXT DEFAULT '',
       session_mode TEXT DEFAULT 'ephemeral',
+      model_key TEXT,
       enabled INTEGER DEFAULT 1
     );
 
@@ -227,6 +237,132 @@ describe("buildSystemPrompt", () => {
 });
 
 // ---------------------------------------------------------------------------
+// buildInjectMessage — channel-specific inject template lookup
+//
+// Naming convention is `trigger-channel-${channel}-inject.md`, matching the
+// rest of the `trigger-channel-${channel}-*.md` family (system prompt,
+// farewell, etc.) consumed by buildSystemPrompt. Before this was unified,
+// the lookup used `trigger-${channel}-inject.md` which never matched any
+// file in app/prompts/ — every channel silently fell through to the
+// generic trigger-inject.md template.
+// ---------------------------------------------------------------------------
+
+describe("buildInjectMessage", () => {
+  let tmpDir: string;
+  let appDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    appDir = join(tmpDir, "app");
+    mkdirSync(join(appDir, "prompts"), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("uses trigger-channel-<channel>-inject.md when present", () => {
+    writeFileSync(
+      join(appDir, "prompts", "trigger-channel-signal-inject.md"),
+      "SIGNAL: {{payload}} from {{sender}}",
+    );
+    const result = buildInjectMessage(
+      "signal", "trig-a", "+491234", "hello", "fb", appDir,
+    );
+    expect(result).toBe("SIGNAL: hello from +491234");
+  });
+
+  test("falls back to trigger-inject.md when channel template missing", () => {
+    writeFileSync(
+      join(appDir, "prompts", "trigger-inject.md"),
+      "GENERIC: {{payload}}",
+    );
+    const result = buildInjectMessage(
+      "telegram", "trig-a", "user", "hi", "fb", appDir,
+    );
+    expect(result).toBe("GENERIC: hi");
+  });
+
+  test("channel-specific template wins over generic", () => {
+    writeFileSync(
+      join(appDir, "prompts", "trigger-channel-email-inject.md"),
+      "EMAIL: {{payload}}",
+    );
+    writeFileSync(
+      join(appDir, "prompts", "trigger-inject.md"),
+      "GENERIC: {{payload}}",
+    );
+    const result = buildInjectMessage(
+      "email", "trig-a", "alice@x.com", "subject body", "fb", appDir,
+    );
+    expect(result).toBe("EMAIL: subject body");
+  });
+
+  test("does NOT match legacy unprefixed filename (regression)", () => {
+    // The old buggy lookup pattern was `trigger-${channel}-inject.md`.
+    // No prompt file in app/prompts/ ever followed that pattern — every
+    // channel template is `trigger-channel-${channel}-inject.md`. Pinning
+    // this expectation guards against a regression to the old lookup.
+    writeFileSync(
+      join(appDir, "prompts", "trigger-email-inject.md"),
+      "LEGACY UNPREFIXED: {{payload}}",
+    );
+    writeFileSync(
+      join(appDir, "prompts", "trigger-inject.md"),
+      "GENERIC: {{payload}}",
+    );
+    const result = buildInjectMessage(
+      "email", "trig-a", "alice@x.com", "body", "fb", appDir,
+    );
+    expect(result).toBe("GENERIC: body");
+  });
+
+  test("substitutes trigger_name, channel, sender, payload", () => {
+    writeFileSync(
+      join(appDir, "prompts", "trigger-channel-web-inject.md"),
+      "trig={{trigger_name}} ch={{channel}} from={{sender}} body={{payload}}",
+    );
+    const result = buildInjectMessage(
+      "web", "morning-brief", "session-1", "good morning", "fb", appDir,
+    );
+    expect(result).toBe(
+      "trig=morning-brief ch=web from=session-1 body=good morning",
+    );
+  });
+
+  test("uses promptFallback when payload is empty", () => {
+    writeFileSync(
+      join(appDir, "prompts", "trigger-inject.md"),
+      "BODY: {{payload}}",
+    );
+    const result = buildInjectMessage(
+      "internal", "trig-a", "self", "", "fallback prompt", appDir,
+    );
+    expect(result).toBe("BODY: fallback prompt");
+  });
+
+  test("hardcoded fallback when no templates exist", () => {
+    const result = buildInjectMessage(
+      "internal", "trig-a", "self", "hello", "fb", appDir,
+    );
+    // No template files written → falls through to the inline default.
+    expect(result).toContain("hello");
+    expect(result).toContain("New message arrived");
+  });
+
+  test("regression: ships an email-channel inject template", () => {
+    // Validates that the repo actually carries
+    // app/prompts/trigger-channel-email-inject.md alongside its
+    // signal/web/whatsapp peers — otherwise the email channel falls
+    // back to the generic prompt and loses its channel-specific
+    // guidance (the original bug).
+    const repoPromptDir = join(import.meta.dir, "..", "prompts");
+    expect(existsSync(join(repoPromptDir, "trigger-channel-email-inject.md")))
+      .toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // resolveModel
 // ---------------------------------------------------------------------------
 
@@ -362,6 +498,110 @@ describe("readTriggerConfig", () => {
     expect(config!.channel).toBe("internal");
     expect(config!.session_mode).toBe("ephemeral");
     expect(config!.enabled).toBe(1);
+  });
+
+  test("model_key defaults to null when unset", () => {
+    const db = createInMemoryDb();
+    db.prepare(`
+      INSERT INTO triggers (name, type) VALUES ('no-model-override', 'cron')
+    `).run();
+
+    const config = readTriggerConfig(db, "no-model-override");
+    expect(config).not.toBeNull();
+    // Null is the sentinel for "fall back to ATLAS_CRON-based default" in
+    // trigger-runner's resolveModel call — distinguishable from "" so an
+    // accidental empty string never silently shadows the default.
+    expect(config!.model_key).toBeNull();
+  });
+
+  test("returns explicit model_key when set", () => {
+    const db = createInMemoryDb();
+    db.prepare(`
+      INSERT INTO triggers (name, type, model_key) VALUES ('cheap-digest', 'cron', 'haiku')
+    `).run();
+
+    const config = readTriggerConfig(db, "cheap-digest");
+    expect(config).not.toBeNull();
+    expect(config!.model_key).toBe("haiku");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateSchema — model_key upgrade path
+// ---------------------------------------------------------------------------
+
+describe("migrateSchema: model_key", () => {
+  /**
+   * Build a pre-model_key triggers table mirroring the schema shipped before
+   * this PR. createInMemoryDb() already includes model_key, so we need a raw
+   * Database here. CHECK + datetime() defaults from production are dropped
+   * because bun:sqlite rejects non-constant defaults at CREATE TABLE time —
+   * the migration only inspects the column list, so this is faithful enough.
+   */
+  function makeLegacyDb(): Database {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE triggers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        channel TEXT DEFAULT 'internal',
+        schedule TEXT,
+        webhook_secret TEXT,
+        webhook_channel TEXT,
+        prompt TEXT DEFAULT '',
+        session_mode TEXT DEFAULT 'ephemeral',
+        enabled INTEGER DEFAULT 1,
+        last_run TEXT,
+        run_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT ''
+      );
+    `);
+    return db;
+  }
+
+  test("adds model_key column to legacy triggers table", () => {
+    const db = makeLegacyDb();
+    db.prepare("INSERT INTO triggers (name, type) VALUES ('legacy-cron', 'cron')").run();
+
+    migrateSchema(db);
+
+    const cols = db.prepare("PRAGMA table_info(triggers)").all() as { name: string }[];
+    expect(cols.map(c => c.name)).toContain("model_key");
+  });
+
+  test("legacy rows get NULL model_key, distinguishable from empty string", () => {
+    const db = makeLegacyDb();
+    db.prepare("INSERT INTO triggers (name, type) VALUES ('legacy-cron', 'cron')").run();
+
+    migrateSchema(db);
+
+    const row = db
+      .prepare("SELECT model_key FROM triggers WHERE name = ?")
+      .get("legacy-cron") as { model_key: string | null };
+    // NULL is the sentinel for "fall through to ATLAS_CRON-based default".
+    // Don't let the migration accidentally seed an empty string here.
+    expect(row.model_key).toBeNull();
+  });
+
+  test("re-running migration is idempotent", () => {
+    const db = makeLegacyDb();
+    // Insert via legacy schema (no model_key yet), then run the migration
+    // once to add the column, write a non-default value, and run it again.
+    // A non-idempotent migration would either error on the second ALTER or
+    // stomp the value we wrote between runs.
+    db.prepare("INSERT INTO triggers (name, type) VALUES ('legacy-cron', 'cron')").run();
+
+    migrateSchema(db);
+    db.prepare("UPDATE triggers SET model_key = 'haiku' WHERE name = ?")
+      .run("legacy-cron");
+    migrateSchema(db);
+
+    const row = db
+      .prepare("SELECT model_key FROM triggers WHERE name = ?")
+      .get("legacy-cron") as { model_key: string };
+    expect(row.model_key).toBe("haiku");
   });
 });
 
@@ -529,22 +769,8 @@ describe("checkCorruptedSession", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// tryIpcInject
-// ---------------------------------------------------------------------------
-
-describe("tryIpcInject", () => {
-  test("returns false for non-existent socket", async () => {
-    const result = await tryIpcInject("nonexistent-session-id-12345", "hello");
-    expect(result).toBe(false);
-  });
-
-  test("returns false for invalid socket path (no socket file)", async () => {
-    // Use a session ID that definitely doesn't have a socket
-    const result = await tryIpcInject("00000000-0000-0000-0000-000000000000", "test message");
-    expect(result).toBe(false);
-  });
-});
+// tryIpcInject has been removed — the Claude IPC fallback was unreliable and
+// caused a 53% false-positive kill rate. The custom socket is the only inject path.
 
 // ---------------------------------------------------------------------------
 // getSocketPath
@@ -653,6 +879,38 @@ describe("createMessageChannel", () => {
 
     ch.close();
   });
+
+  test("push() with shouldQuery=false sets the field on the yielded message", async () => {
+    const ch = createMessageChannel("test-session-6", 60000);
+    ch.push("steering hint", { shouldQuery: false });
+    const iter = ch.generator[Symbol.asyncIterator]();
+    const r = await iter.next();
+    expect(r.done).toBe(false);
+    // shouldQuery is technically optional on the SDK type; cast for the test.
+    expect((r.value as unknown as { shouldQuery?: boolean }).shouldQuery).toBe(false);
+    ch.close();
+  });
+
+  test("push() with priority='now' sets the field on the yielded message", async () => {
+    const ch = createMessageChannel("test-session-7", 60000);
+    ch.push("urgent", { priority: "now" });
+    const iter = ch.generator[Symbol.asyncIterator]();
+    const r = await iter.next();
+    expect(r.done).toBe(false);
+    expect((r.value as unknown as { priority?: string }).priority).toBe("now");
+    ch.close();
+  });
+
+  test("push() without options omits shouldQuery/priority (default turn-triggering message)", async () => {
+    const ch = createMessageChannel("test-session-8", 60000);
+    ch.push("normal");
+    const iter = ch.generator[Symbol.asyncIterator]();
+    const r = await iter.next();
+    expect(r.done).toBe(false);
+    expect((r.value as unknown as { shouldQuery?: boolean }).shouldQuery).toBeUndefined();
+    expect((r.value as unknown as { priority?: string }).priority).toBeUndefined();
+    ch.close();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -681,7 +939,7 @@ describe("Socket IPC", () => {
 
     server = startSocketServer(socketPath, (text) => {
       received.push(text);
-    });
+    }, async () => {});
 
     // Wait for server to be ready
     await Bun.sleep(50);
@@ -698,7 +956,7 @@ describe("Socket IPC", () => {
 
     server = startSocketServer(socketPath, (text) => {
       received.push(text);
-    });
+    }, async () => {});
 
     await Bun.sleep(50);
 
@@ -718,7 +976,7 @@ describe("Socket IPC", () => {
     const ch = createMessageChannel("test-session-socket", 60000);
     server = startSocketServer(socketPath, (text) => {
       ch.push(text);
-    });
+    }, async () => {});
 
     await Bun.sleep(50);
 
@@ -737,7 +995,7 @@ describe("Socket IPC", () => {
 
   test("cleanupSocket removes socket file", async () => {
     socketPath = `/tmp/.trigger-test-cleanup-${Date.now()}.sock`;
-    server = startSocketServer(socketPath, () => {});
+    server = startSocketServer(socketPath, () => {}, async () => {});
     await Bun.sleep(50);
 
     expect(existsSync(socketPath)).toBe(true);
@@ -745,5 +1003,587 @@ describe("Socket IPC", () => {
     server = null; // Already cleaned up
 
     expect(existsSync(socketPath)).toBe(false);
+  });
+
+  test("socket server dispatches interrupt control message and does not push text", async () => {
+    socketPath = `/tmp/.trigger-test-interrupt-${Date.now()}.sock`;
+    const received: string[] = [];
+    const controls: string[] = [];
+
+    server = startSocketServer(
+      socketPath,
+      (text) => { received.push(text); },
+      async (control) => { controls.push(control); },
+    );
+
+    await Bun.sleep(50);
+
+    // Send an interrupt control
+    const ok = await trySocketInject(socketPath, "", "signal", "+491234", "interrupt");
+    expect(ok).toBe(true);
+    // Should call controlFn, not pushFn
+    await Bun.sleep(50);
+    expect(controls).toEqual(["interrupt"]);
+    expect(received).toHaveLength(0);
+  });
+
+  test("trySocketInject sends control field when control is set", async () => {
+    socketPath = `/tmp/.trigger-test-ctrl-field-${Date.now()}.sock`;
+    const controls: string[] = [];
+
+    server = startSocketServer(
+      socketPath,
+      () => {},
+      async (control) => { controls.push(control); },
+    );
+
+    await Bun.sleep(50);
+
+    const ok = await trySocketInject(socketPath, "ignored", "signal", "+491234", "interrupt");
+    expect(ok).toBe(true);
+    await Bun.sleep(50);
+    expect(controls).toEqual(["interrupt"]);
+  });
+
+  test("inject after successful socket inject exits immediately (no mtime check)", async () => {
+    // This test verifies that a successful socket inject does NOT wait 2s for JSONL mtime.
+    // We just check that trySocketInject returns true and the ack is immediate.
+    socketPath = `/tmp/.trigger-test-no-mtime-${Date.now()}.sock`;
+    const received: string[] = [];
+
+    server = startSocketServer(socketPath, (text) => {
+      received.push(text);
+    }, async () => {});
+
+    await Bun.sleep(50);
+
+    const start = Date.now();
+    const ok = await trySocketInject(socketPath, "fast inject", "signal", "+491234");
+    const elapsed = Date.now() - start;
+
+    expect(ok).toBe(true);
+    expect(received).toEqual(["fast inject"]);
+    // Must complete well under 1 second — the old mtime check added 2000ms
+    expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persistStreamChunk — text delta persistence for the web channel SSE stream
+// ---------------------------------------------------------------------------
+
+describe("persistStreamChunk", () => {
+  let db: Database;
+  let state: { uuid: string | null; nextIndex: number };
+  let api: StreamChunkState;
+
+  beforeAll(() => {
+    db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE web_chat_stream_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        message_uuid TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        content_delta TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
+  });
+
+  afterAll(() => {
+    db.close();
+  });
+
+  afterEach(() => {
+    db.exec("DELETE FROM web_chat_stream_chunks");
+  });
+
+  function freshState(): StreamChunkState {
+    state = { uuid: null, nextIndex: 0 };
+    api = {
+      setUuid: (u) => { state.uuid = u; state.nextIndex = 0; },
+      uuidRef: () => state.uuid,
+      nextIndex: () => state.nextIndex++,
+    };
+    return api;
+  }
+
+  function rows(): { message_uuid: string; chunk_index: number; content_delta: string }[] {
+    return db.prepare(
+      "SELECT message_uuid, chunk_index, content_delta FROM web_chat_stream_chunks ORDER BY id ASC",
+    ).all() as { message_uuid: string; chunk_index: number; content_delta: string }[];
+  }
+
+  test("message_start records the message id but writes no chunk row", () => {
+    const s = freshState();
+    persistStreamChunk(
+      { type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-abc" } } },
+      s,
+      db,
+    );
+    expect(state.uuid).toBe("msg-abc");
+    expect(rows().length).toBe(0);
+  });
+
+  test("text deltas after message_start are persisted with incrementing index", () => {
+    const s = freshState();
+    persistStreamChunk(
+      { type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-1" } } },
+      s, db,
+    );
+    persistStreamChunk(
+      { type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hello" } } },
+      s, db,
+    );
+    persistStreamChunk(
+      { type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: " world" } } },
+      s, db,
+    );
+
+    expect(rows()).toEqual([
+      { message_uuid: "msg-1", chunk_index: 0, content_delta: "Hello" },
+      { message_uuid: "msg-1", chunk_index: 1, content_delta: " world" },
+    ]);
+  });
+
+  test("a new message_start resets the chunk index to 0", () => {
+    const s = freshState();
+    // turn 1
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-1" } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "A" } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "B" } } }, s, db);
+    // turn 2 (after a tool, say)
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-2" } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "X" } } }, s, db);
+
+    expect(rows()).toEqual([
+      { message_uuid: "msg-1", chunk_index: 0, content_delta: "A" },
+      { message_uuid: "msg-1", chunk_index: 1, content_delta: "B" },
+      { message_uuid: "msg-2", chunk_index: 0, content_delta: "X" },
+    ]);
+  });
+
+  test("non-text deltas (tool_use, thinking, message_stop) are ignored", () => {
+    const s = freshState();
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-1" } } }, s, db);
+
+    // Tool-block delta, thinking-delta, content_block_stop, message_stop — none should write a row
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{" } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "..." } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_stop", index: 0 } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "message_stop" } }, s, db);
+
+    expect(rows().length).toBe(0);
+  });
+
+  test("empty text deltas are ignored (no zero-length rows)", () => {
+    const s = freshState();
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "message_start", message: { id: "msg-1" } } }, s, db);
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "" } } }, s, db);
+
+    expect(rows().length).toBe(0);
+  });
+
+  test("text delta before any message_start is silently dropped", () => {
+    const s = freshState();
+    persistStreamChunk({ type: "stream_event", session_id: "sess-1", event: { type: "content_block_delta", delta: { type: "text_delta", text: "orphan" } } }, s, db);
+
+    expect(rows().length).toBe(0);
+    expect(state.uuid).toBeNull();
+  });
+
+  test("non-stream_event types are ignored", () => {
+    const s = freshState();
+    persistStreamChunk({ type: "assistant", session_id: "sess-1", event: { type: "message_start", message: { id: "x" } } }, s, db);
+    expect(state.uuid).toBeNull();
+    expect(rows().length).toBe(0);
+  });
+
+  test("missing session_id is ignored", () => {
+    const s = freshState();
+    persistStreamChunk({ type: "stream_event", event: { type: "message_start", message: { id: "msg-1" } } }, s, db);
+    // message_start with no session_id should not even set the uuid
+    expect(state.uuid).toBeNull();
+    expect(rows().length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// modelFamily + MODEL_PRICING
+// ---------------------------------------------------------------------------
+
+describe("modelFamily", () => {
+  test("detects opus from model string", () => {
+    expect(modelFamily("claude-opus-4-5")).toBe("opus");
+    expect(modelFamily("claude-opus-3")).toBe("opus");
+  });
+  test("detects haiku from model string", () => {
+    expect(modelFamily("claude-haiku-3-5")).toBe("haiku");
+    expect(modelFamily("claude-haiku-3")).toBe("haiku");
+  });
+  test("defaults to sonnet for anything else", () => {
+    expect(modelFamily("claude-sonnet-4-5")).toBe("sonnet");
+    expect(modelFamily("claude-3-5-sonnet-20241022")).toBe("sonnet");
+    expect(modelFamily("unknown-model")).toBe("sonnet");
+    expect(modelFamily("")).toBe("sonnet");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// aggregateRunCost
+// ---------------------------------------------------------------------------
+
+describe("aggregateRunCost", () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "atlas-agg-cost-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  function makeEntry(opts: {
+    id: string;
+    timestamp: string;
+    model?: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheRead?: number;
+    cacheCreate?: number;
+  }): string {
+    return JSON.stringify({
+      type: "assistant",
+      timestamp: opts.timestamp,
+      message: {
+        id: opts.id,
+        model: opts.model ?? "claude-sonnet-4-5",
+        usage: {
+          input_tokens: opts.inputTokens,
+          output_tokens: opts.outputTokens,
+          cache_read_input_tokens: opts.cacheRead ?? 0,
+          cache_creation_input_tokens: opts.cacheCreate ?? 0,
+        },
+      },
+    });
+  }
+
+  function setupProject(sessionId: string): {
+    projectDir: string;
+    parentJsonl: string;
+    subagentsDir: string;
+  } {
+    const projectDir = "test-project-agg";
+    const base = join(tmp, ".claude", "projects", projectDir);
+    mkdirSync(base, { recursive: true });
+    const parentJsonl = join(base, `${sessionId}.jsonl`);
+    const subagentsDir = join(base, sessionId, "subagents");
+    mkdirSync(subagentsDir, { recursive: true });
+    return { projectDir, parentJsonl, subagentsDir };
+  }
+
+  test("returns zeros when no JSONL files exist", () => {
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = "nonexistent-project-agg";
+    const result = aggregateRunCost("no-session", "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+    expect(result.inputTokens).toBe(0);
+    expect(result.outputTokens).toBe(0);
+    expect(result.costUsd).toBe(0);
+  });
+
+  test("sums parent JSONL tokens correctly", () => {
+    const sessionId = "agg-parent-only";
+    const { projectDir, parentJsonl } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    writeFileSync(parentJsonl, [
+      makeEntry({ id: "msg_1", timestamp: "2026-01-01T10:00:10Z", inputTokens: 1000, outputTokens: 500, cacheRead: 200, cacheCreate: 100 }),
+    ].join("\n"));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    expect(result.inputTokens).toBe(1000);
+    expect(result.outputTokens).toBe(500);
+    expect(result.cacheReadTokens).toBe(200);
+    expect(result.cacheCreationTokens).toBe(100);
+    // cost = (1000*3 + 500*15 + 200*0.3 + 100*3.75) / 1_000_000 = 10935/1e6
+    expect(result.costUsd).toBeCloseTo(0.010935, 6);
+  });
+
+  test("sums parent + subagent JSONL tokens together", () => {
+    const sessionId = "agg-with-subagents";
+    const { projectDir, parentJsonl, subagentsDir } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    writeFileSync(parentJsonl, makeEntry({ id: "msg_parent", timestamp: "2026-01-01T10:00:10Z", inputTokens: 500, outputTokens: 200 }));
+    writeFileSync(join(subagentsDir, "agent-sub1.jsonl"), makeEntry({ id: "msg_sub1", timestamp: "2026-01-01T10:00:20Z", inputTokens: 300, outputTokens: 100 }));
+    writeFileSync(join(subagentsDir, "agent-sub2.jsonl"), makeEntry({ id: "msg_sub2", timestamp: "2026-01-01T10:00:30Z", inputTokens: 200, outputTokens: 50 }));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    expect(result.inputTokens).toBe(1000);
+    expect(result.outputTokens).toBe(350);
+  });
+
+  test("filters out messages outside the time window", () => {
+    const sessionId = "agg-time-window";
+    const { projectDir, parentJsonl } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    writeFileSync(parentJsonl, [
+      // Before window start — should be excluded
+      makeEntry({ id: "msg_before", timestamp: "2026-01-01T09:59:00Z", inputTokens: 9999, outputTokens: 9999 }),
+      // Inside window
+      makeEntry({ id: "msg_inside", timestamp: "2026-01-01T10:00:10Z", inputTokens: 100, outputTokens: 50 }),
+      // After window end + 60s buffer — should be excluded
+      makeEntry({ id: "msg_after", timestamp: "2026-01-01T10:02:30Z", inputTokens: 9999, outputTokens: 9999 }),
+    ].join("\n"));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    expect(result.inputTokens).toBe(100);
+    expect(result.outputTokens).toBe(50);
+  });
+
+  test("deduplicates by message.id across parent and subagent files", () => {
+    const sessionId = "agg-dedup";
+    const { projectDir, parentJsonl, subagentsDir } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    // Same message id in both parent and subagent — should only count once
+    const sharedEntry = makeEntry({ id: "msg_shared", timestamp: "2026-01-01T10:00:10Z", inputTokens: 500, outputTokens: 200 });
+    writeFileSync(parentJsonl, sharedEntry);
+    writeFileSync(join(subagentsDir, "agent-dup.jsonl"), sharedEntry);
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    // Should count only once, not twice
+    expect(result.inputTokens).toBe(500);
+    expect(result.outputTokens).toBe(200);
+  });
+
+  test("applies correct pricing per model family", () => {
+    const sessionId = "agg-pricing";
+    const { projectDir, parentJsonl, subagentsDir } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    // Opus: in=15, out=75 per 1M
+    writeFileSync(parentJsonl, makeEntry({ id: "msg_opus", timestamp: "2026-01-01T10:00:10Z", model: "claude-opus-4-5", inputTokens: 1000, outputTokens: 1000 }));
+    // Haiku: in=1, out=5 per 1M
+    writeFileSync(join(subagentsDir, "agent-haiku.jsonl"), makeEntry({ id: "msg_haiku", timestamp: "2026-01-01T10:00:20Z", model: "claude-haiku-3-5", inputTokens: 1000, outputTokens: 1000 }));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    // opus: (1000*15 + 1000*75) / 1e6 = 0.090
+    // haiku: (1000*1 + 1000*5) / 1e6 = 0.006
+    expect(result.costUsd).toBeCloseTo(0.096, 6);
+  });
+
+  test("returns zeros for files with no usage data or missing message.id", () => {
+    const sessionId = "agg-no-usage";
+    const { projectDir, parentJsonl } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    writeFileSync(parentJsonl, [
+      JSON.stringify({ type: "user", timestamp: "2026-01-01T10:00:10Z", message: { role: "user", content: "hi" } }),
+      // No message.id
+      JSON.stringify({ type: "assistant", timestamp: "2026-01-01T10:00:11Z", message: { model: "claude-sonnet-4-5", usage: { input_tokens: 100, output_tokens: 50 } } }),
+    ].join("\n"));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    expect(result.inputTokens).toBe(0);
+    expect(result.costUsd).toBe(0);
+  });
+
+  test("includes messages within the 60-second end buffer", () => {
+    const sessionId = "agg-buffer";
+    const { projectDir, parentJsonl } = setupProject(sessionId);
+    const origProjDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = projectDir;
+
+    // 30 seconds after endedAt — within 60s buffer
+    writeFileSync(parentJsonl, makeEntry({ id: "msg_buffered", timestamp: "2026-01-01T10:01:30Z", inputTokens: 200, outputTokens: 100 }));
+
+    const result = aggregateRunCost(sessionId, "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", tmp);
+    process.env.CLAUDE_PROJECT_DIR = origProjDir;
+
+    expect(result.inputTokens).toBe(200);
+    expect(result.outputTokens).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// is400UpstreamError + clearSessionOn400
+// ---------------------------------------------------------------------------
+
+describe("is400UpstreamError", () => {
+  test("returns true for API Error: 400 result", () => {
+    expect(is400UpstreamError('API Error: 400 {"error":"Upstream error"}')).toBe(true);
+  });
+
+  test("returns true for bare API Error: 400", () => {
+    expect(is400UpstreamError("API Error: 400")).toBe(true);
+  });
+
+  test("returns false for other API errors", () => {
+    expect(is400UpstreamError("API Error: 401 Unauthorized")).toBe(false);
+    expect(is400UpstreamError("API Error: 500 Internal Server Error")).toBe(false);
+  });
+
+  test("returns false for null", () => {
+    expect(is400UpstreamError(null)).toBe(false);
+  });
+
+  test("returns false for undefined", () => {
+    expect(is400UpstreamError(undefined)).toBe(false);
+  });
+
+  test("returns false for normal result text", () => {
+    expect(is400UpstreamError("Email sent successfully")).toBe(false);
+  });
+});
+
+describe("clearSessionOn400", () => {
+  function makeSessionDb(): Database {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE trigger_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_name TEXT NOT NULL,
+        session_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(trigger_name, session_key)
+      );
+    `);
+    return db;
+  }
+
+  function insertSession(db: Database, triggerName: string, sessionKey: string, sessionId: string): void {
+    db.prepare(
+      "INSERT INTO trigger_sessions (trigger_name, session_key, session_id) VALUES (?, ?, ?)"
+    ).run(triggerName, sessionKey, sessionId);
+  }
+
+  function sessionExists(db: Database, triggerName: string, sessionKey: string): boolean {
+    const row = db.prepare(
+      "SELECT id FROM trigger_sessions WHERE trigger_name = ? AND session_key = ? LIMIT 1"
+    ).get(triggerName, sessionKey);
+    return row !== null && row !== undefined;
+  }
+
+  test("deletes session row and logs when result starts with API Error: 400", () => {
+    const db = makeSessionDb();
+    const logMessages: string[] = [];
+    const log = { log: (msg: string) => logMessages.push(msg) };
+
+    insertSession(db, "email-handler", "thread-abc", "sess-broken-123");
+    expect(sessionExists(db, "email-handler", "thread-abc")).toBe(true);
+
+    const cleared = clearSessionOn400(
+      db,
+      'API Error: 400 {"error":"Upstream error"}',
+      "persistent",
+      "email-handler",
+      "thread-abc",
+      "sess-broken-123",
+      null,
+      log,
+    );
+
+    // Row must be deleted
+    expect(sessionExists(db, "email-handler", "thread-abc")).toBe(false);
+    // Returned the cleared session id
+    expect(cleared).toBe("sess-broken-123");
+    // Log message must be emitted
+    expect(logMessages.some(m => m.includes("Upstream 400 detected"))).toBe(true);
+    expect(logMessages.some(m => m.includes("sess-broken-123"))).toBe(true);
+    expect(logMessages.some(m => m.includes("starts fresh"))).toBe(true);
+  });
+
+  test("uses existingSession when capturedSessionId is null", () => {
+    const db = makeSessionDb();
+    const logMessages: string[] = [];
+    const log = { log: (msg: string) => logMessages.push(msg) };
+
+    insertSession(db, "email-handler", "thread-xyz", "sess-old-456");
+
+    const cleared = clearSessionOn400(
+      db,
+      "API Error: 400",
+      "persistent",
+      "email-handler",
+      "thread-xyz",
+      null,              // capturedSessionId is null
+      "sess-old-456",   // existingSession
+      log,
+    );
+
+    expect(sessionExists(db, "email-handler", "thread-xyz")).toBe(false);
+    expect(cleared).toBe("sess-old-456");
+    expect(logMessages.some(m => m.includes("sess-old-456"))).toBe(true);
+  });
+
+  test("does NOT delete session for non-400 result", () => {
+    const db = makeSessionDb();
+    const logMessages: string[] = [];
+    const log = { log: (msg: string) => logMessages.push(msg) };
+
+    insertSession(db, "email-handler", "thread-ok", "sess-good-789");
+
+    const cleared = clearSessionOn400(
+      db,
+      "Email replied successfully.",
+      "persistent",
+      "email-handler",
+      "thread-ok",
+      "sess-good-789",
+      null,
+      log,
+    );
+
+    expect(sessionExists(db, "email-handler", "thread-ok")).toBe(true);
+    expect(cleared).toBeNull();
+    expect(logMessages.length).toBe(0);
+  });
+
+  test("does NOT delete session for ephemeral trigger even on 400", () => {
+    const db = makeSessionDb();
+    const logMessages: string[] = [];
+    const log = { log: (msg: string) => logMessages.push(msg) };
+
+    insertSession(db, "some-trigger", "key-1", "sess-ephemeral");
+
+    const cleared = clearSessionOn400(
+      db,
+      "API Error: 400",
+      "ephemeral",   // not persistent
+      "some-trigger",
+      "key-1",
+      "sess-ephemeral",
+      null,
+      log,
+    );
+
+    // ephemeral triggers: no session table entry to worry about
+    expect(cleared).toBeNull();
+    expect(logMessages.length).toBe(0);
   });
 });

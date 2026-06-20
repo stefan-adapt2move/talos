@@ -1,6 +1,6 @@
 # Triggers
 
-Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a project manager, and delegates complex work to agent teammates.
+Triggers are autonomous agent sessions that process events independently. Each trigger spawns its own Claude session, acts as a project manager, and delegates complex work to subagents via `Agent(...)`.
 
 ## Architecture
 
@@ -22,9 +22,9 @@ Event arrives (cron / webhook / manual)
        ┌───┘        └───┐
        ▼                ▼
 ┌──────────────┐  ┌──────────────────────────────────────┐
-│ Respond      │  │ TeamCreate + Agent(...)               │
-│ directly     │  │ → teammates work in parallel          │
-│ (CLI tools,  │  │ → trigger coordinates via SendMessage │
+│ Respond      │  │ Agent(subagent_type=..., model=...,   │
+│ directly     │  │   prompt="<self-contained task>")     │
+│ (CLI tools,  │  │ → trigger reviews result before relay │
 │  MCP action) │  │                                       │
 └──────────────┘  └──────────────────────────────────────┘
 ```
@@ -33,13 +33,13 @@ Event arrives (cron / webhook / manual)
 
 | | Trigger Session |
 |---|---|
-| **Role** | Project manager, user communication, team coordination |
+| **Role** | Project manager, user communication, task delegation |
 | **System prompt** | SOUL + IDENTITY + trigger-system-prompt + channel prompt |
 | **MCP tools** | — |
 | **Spawned by** | `trigger.sh` per event |
 | **Session persistence** | Configurable per trigger (ephemeral or persistent) |
 
-Agent teammates are spawned by the trigger session via `Agent(team_name=..., name=..., model=...)`. They are separate Claude Code instances that each load their own context (CLAUDE.md, skills) and receive the spawn prompt from the trigger. See the [Claude Code agent teams docs](https://code.claude.com/docs/en/agent-teams) for details.
+Subagents are spawned by the trigger session via `Agent(subagent_type=..., model=..., prompt=...)`. They are stateless workers that receive all needed context via the prompt.
 
 ### Session Modes
 
@@ -226,11 +226,11 @@ Agent(subagent_type="general-purpose", model="sonnet", prompt="<detailed task>")
 
 ### Complex multi-step tasks
 ```
-1. TeamCreate(team_name="<descriptive-name>")
-2. Agent(team_name=..., name="developer", model="sonnet")
-3. Agent(team_name=..., name="task-reviewer", model="haiku")  ← optional review
-4. Coordinate via SendMessage
-5. TeamDelete()
+# Plan tasks with `task add`, then spawn subagents for each unit of work:
+Agent(subagent_type="general-purpose", model="sonnet", prompt="<self-contained task with acceptance criteria>")
+# Optional review pass:
+Agent(subagent_type="general-purpose", model="haiku", prompt="<review task>")
+# Review results yourself before relaying to the user
 ```
 
 See `app/prompts/trigger-system-prompt.md` for the full delegation guidelines.
@@ -288,6 +288,30 @@ Session Mode:   ephemeral
 Prompt:         Run a system health check (disk, memory, services).
                 Only delegate a task if something needs attention.
                 Otherwise, silently succeed.
+```
+
+## Built-in Triggers
+
+### Dreaming (Cron)
+
+Nightly cognitive consolidation — inspired by how memory consolidation works during sleep. Runs a multi-phase process:
+
+1. **Session Replay** — Extracts the last 24h of Claude Code sessions using `extract-sessions.py`, identifying key decisions, learnings, mistakes, and new entities
+2. **Memory Consolidation** — Writes journal entries, creates/updates entity and decision files, discovers workflow patterns
+3. **Memory Hygiene** — Cleans redundancies, resolves broken wikilinks, archives stale entries, validates frontmatter
+4. **External Verification** — Checks current state of external resources (open PRs, deployments, task status)
+5. **Skill Creation** — Can create new skills from recurring patterns observed across sessions
+6. **Task Hygiene** — Reviews open tasks and goals, closes completed ones, flags stale items
+
+- **Schedule:** `0 3 * * *` (daily at 03:00)
+- **Session Mode:** ephemeral
+- **Default prompt:** `app/defaults/triggers/dreaming/prompt.md`
+- **Session extractor:** `app/triggers/cron/extract-sessions.py`
+
+The session extractor (`extract-sessions.py`) parses JSONL session files, filtering out system messages and tool results to produce a condensed conversation summary within a configurable token budget:
+
+```bash
+python3 /atlas/app/triggers/cron/extract-sessions.py --hours 24 --max-tokens 30000
 ```
 
 ## Managing Triggers
@@ -352,12 +376,12 @@ When cron triggers are created, updated, or deleted, the crontab is automaticall
                    ┌─────────┴─────────┐
                    │                   │
               Handles it          Delegates via
-              directly            Agent Teams
+              directly            Agent(...)
                    │                   │
                    ▼                   ▼
               ┌─────────┐    ┌────────────────────┐
-              │  Done   │    │ Agent teammates    │
-              └─────────┘    │ work in            │
-                             │ parallel           │
+              │  Done   │    │ Subagents on       │
+              └─────────┘    │ focused tasks      │
+                             │ (stateless)        │
                              └────────────────────┘
 ```

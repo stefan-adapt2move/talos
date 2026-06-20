@@ -117,7 +117,7 @@ The `trigger create` command creates the directory automatically. Write the full
 Example `~/triggers/daily-report/prompt.md`:
 ```
 Check the inbox for any unread messages and summarize activity from the past 24 hours.
-Escalate anything urgent by delegating to an Agent teammate.
+Escalate anything urgent by delegating via Agent.
 ```
 
 ## Middleware Filter Scripts
@@ -508,7 +508,7 @@ email:
   smtp_host: "smtp.gmail.com"
   smtp_port: 587
   username: "atlas@example.com"
-  password_file: "/home/atlas/secrets/email-password"
+  password_file: "/home/agent/secrets/email-password"
   folder: "INBOX"
   whitelist: []   # empty = accept all; or ["alice@example.com", "example.org"]
   mark_read: true
@@ -517,8 +517,8 @@ email:
 **Step 2: Store password**
 
 ```bash
-echo "your-app-password" > /home/atlas/secrets/email-password
-chmod 600 /home/atlas/secrets/email-password
+echo "your-app-password" > /home/agent/secrets/email-password
+chmod 600 /home/agent/secrets/email-password
 ```
 
 For Gmail: use an App Password, not your main password.
@@ -542,7 +542,7 @@ New email received:
 
 The payload contains inbox_message_id and thread_id.
 Reply directly via CLI: email reply <thread_id> "message"
-Escalate complex tasks by delegating to an Agent teammate.
+Escalate complex tasks by delegating via Agent.
 ```
 
 **Step 4: Add polling**
@@ -597,16 +597,14 @@ Never edit below the marker — those entries are managed by `sync-crontab.ts`. 
 Trigger sessions act as project managers:
 
 1. **Simple events**: Handle directly with CLI tools (`signal send`, `email reply`) or MCP actions
-2. **Complex events**: Delegate to agent teammates via `Agent(...)` or `TeamCreate` + `Agent(...)`
+2. **Complex events**: Delegate to subagents via `Agent(...)`
 
 ```
-# Quick task — single agent
-Agent(subagent_type="general-purpose", model="sonnet", prompt="Review critical issue #42 from GitHub")
+# Quick task — lightweight subagent
+Agent(subagent_type="general-purpose", model="haiku", prompt="Summarize the last 5 GitHub issues in repo X")
 
-# Complex multi-step work — agent team
-TeamCreate(team_name="deploy-review")
-Agent(team_name="deploy-review", name="developer", model="sonnet", prompt="...")
-TeamDelete()
+# Heavier task — sonnet subagent with full context
+Agent(subagent_type="general-purpose", model="sonnet", prompt="<self-contained task description with acceptance criteria>")
 ```
 
 See the trigger session's system prompt for the full delegation guidelines.

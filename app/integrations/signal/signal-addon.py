@@ -31,7 +31,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+ATLAS_DB_PATH = os.environ["HOME"] + "/.index/" + os.environ.get("DB_FILENAME", "atlas.db")
 SIGNAL_DB_DIR = os.environ["HOME"] + "/.index/signal"
 SIGNAL_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/signal-cli/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"
@@ -671,7 +671,172 @@ def cmd_new_session(config, sender, inbox_msg_id, name="", timestamp=""):
 
 # --- SEND command ---
 
-def _send_via_socket(to, message, attachments=None):
+def _utf16_len(s):
+    """Count UTF-16 code units in a string. Signal text-style positions use UTF-16."""
+    return sum(2 if ord(c) > 0xFFFF else 1 for c in s)
+
+
+# Style names match signal-cli's TextStyle.Style enum (lib/.../api/TextStyle.java):
+#   NONE, BOLD, ITALIC, SPOILER, STRIKETHROUGH, MONOSPACE.
+_STYLE_BOLD = "BOLD"
+_STYLE_ITALIC = "ITALIC"
+_STYLE_STRIKE = "STRIKETHROUGH"
+_STYLE_MONO = "MONOSPACE"
+
+
+def markdown_to_signal_styles(text):
+    """Parse Markdown markers in *text* and produce signal-cli `--text-style` styles.
+
+    Returns ``(plain_text, styles)`` where ``styles`` is a list of strings of the
+    form ``"start:length:STYLE"`` with positions in UTF-16 code units (Signal's
+    requirement). Markers are stripped from ``plain_text``.
+
+    Supported markers:
+      * ``***x***`` / ``___x___``  → BOLD + ITALIC (two overlapping styles)
+      * ``**x**`` / ``__x__``       → BOLD
+      * ``~~x~~``                   → STRIKETHROUGH
+      * `` `x` ``                   → MONOSPACE (no further parsing inside)
+      * ``*x*`` / ``_x_``           → ITALIC (with word-boundary checks)
+
+    Conservative by design: lone asterisks (``2 * 3``), file globs (``*.py``),
+    snake_case identifiers (``foo_bar_baz``), space-padded markers
+    (``* not italic *``) and unmatched markers stay verbatim.
+    """
+    if not text:
+        return text, []
+
+    plain_parts = []
+    styles = []
+    plain_utf16 = 0  # cumulative UTF-16 length of plain output
+    pos = 0
+    n = len(text)
+
+    def _emit(s):
+        nonlocal plain_utf16
+        plain_parts.append(s)
+        plain_utf16 += _utf16_len(s)
+
+    def _add_style(start, length, *names):
+        if length > 0:
+            for name in names:
+                styles.append(f"{start}:{length}:{name}")
+
+    def _is_word_char(c):
+        return c.isalnum() or c == "_"
+
+    while pos < n:
+        # --- Triple markers: ***x*** / ___x___ (BOLD+ITALIC) -----------------
+        triple = None
+        if text.startswith("***", pos):
+            triple = ("***", "***")
+        elif text.startswith("___", pos):
+            triple = ("___", "___")
+        if triple:
+            opener, closer = triple
+            end = text.find(closer, pos + 3)
+            if end != -1 and end > pos + 3:
+                inner = text[pos + 3:end]
+                start_u = plain_utf16
+                inner_u = _utf16_len(inner)
+                _add_style(start_u, inner_u, _STYLE_BOLD, _STYLE_ITALIC)
+                _emit(inner)
+                pos = end + 3
+                continue
+
+        # --- Double markers: **x** __x__ ~~x~~ -------------------------------
+        double = None
+        if text.startswith("**", pos):
+            double = ("**", _STYLE_BOLD)
+        elif text.startswith("__", pos):
+            double = ("__", _STYLE_BOLD)
+        elif text.startswith("~~", pos):
+            double = ("~~", _STYLE_STRIKE)
+        if double:
+            opener, name = double
+            end = text.find(opener, pos + 2)
+            if end != -1 and end > pos + 2:
+                inner = text[pos + 2:end]
+                start_u = plain_utf16
+                inner_u = _utf16_len(inner)
+                _add_style(start_u, inner_u, name)
+                _emit(inner)
+                pos = end + 2
+                continue
+
+        # --- Inline code: `x` (MONOSPACE, no nested parsing) -----------------
+        if text[pos] == "`":
+            end = text.find("`", pos + 1)
+            if end != -1 and end > pos + 1:
+                inner = text[pos + 1:end]
+                start_u = plain_utf16
+                inner_u = _utf16_len(inner)
+                _add_style(start_u, inner_u, _STYLE_MONO)
+                _emit(inner)
+                pos = end + 1
+                continue
+
+        # --- Single * italic -------------------------------------------------
+        if text[pos] == "*":
+            prev_ok = pos == 0 or not _is_word_char(text[pos - 1])
+            next_ok = pos + 1 < n and not text[pos + 1].isspace() and text[pos + 1] != "*"
+            if prev_ok and next_ok:
+                j = pos + 1
+                found = -1
+                while j < n:
+                    if text[j] == "*":
+                        # Skip ** (would be bold marker, not italic closer)
+                        if j + 1 < n and text[j + 1] == "*":
+                            j += 2
+                            continue
+                        # Closer must be non-space-preceded + non-word-followed
+                        if not text[j - 1].isspace() and (j + 1 >= n or not _is_word_char(text[j + 1])):
+                            found = j
+                            break
+                    j += 1
+                if found != -1:
+                    inner = text[pos + 1:found]
+                    if inner:
+                        start_u = plain_utf16
+                        inner_u = _utf16_len(inner)
+                        _add_style(start_u, inner_u, _STYLE_ITALIC)
+                        _emit(inner)
+                        pos = found + 1
+                        continue
+
+        # --- Single _ italic (stricter: avoid snake_case) --------------------
+        if text[pos] == "_":
+            prev_ok = pos == 0 or not _is_word_char(text[pos - 1])
+            next_ok = pos + 1 < n and not text[pos + 1].isspace() and text[pos + 1] != "_"
+            if prev_ok and next_ok:
+                j = pos + 1
+                found = -1
+                while j < n:
+                    if text[j] == "_":
+                        if j + 1 < n and text[j + 1] == "_":
+                            j += 2
+                            continue
+                        if not text[j - 1].isspace() and (j + 1 >= n or not _is_word_char(text[j + 1])):
+                            found = j
+                            break
+                    j += 1
+                if found != -1:
+                    inner = text[pos + 1:found]
+                    if inner:
+                        start_u = plain_utf16
+                        inner_u = _utf16_len(inner)
+                        _add_style(start_u, inner_u, _STYLE_ITALIC)
+                        _emit(inner)
+                        pos = found + 1
+                        continue
+
+        # --- Default: emit one char verbatim ---------------------------------
+        _emit(text[pos])
+        pos += 1
+
+    return "".join(plain_parts), styles
+
+
+def _send_via_socket(to, message, attachments=None, text_styles=None):
     """Send via the running signal-cli daemon JSON-RPC socket."""
     import socket as _socket
     with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
@@ -680,6 +845,9 @@ def _send_via_socket(to, message, attachments=None):
         params = {"recipient": [to], "message": message}
         if attachments:
             params["attachments"] = [os.path.abspath(f) for f in attachments]
+        if text_styles:
+            # signal-cli JSON-RPC field name mirrors the CLI flag.
+            params["textStyle"] = list(text_styles)
         req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "send", "params": params})
         s.sendall(req.encode() + b"\n")
         # Read until newline (single JSON-RPC response)
@@ -694,7 +862,7 @@ def _send_via_socket(to, message, attachments=None):
             raise RuntimeError(resp["error"].get("message", str(resp["error"])))
 
 
-def _send_via_cli(number, to, message, attachments=None):
+def _send_via_cli(number, to, message, attachments=None, text_styles=None):
     """Send via direct signal-cli invocation (fallback when no daemon socket)."""
     bin_path = _find_signal_cli_bin()
     if not bin_path:
@@ -702,14 +870,46 @@ def _send_via_cli(number, to, message, attachments=None):
     cmd = [bin_path, "-a", number, "send", "-m", message]
     for f in (attachments or []):
         cmd.extend(["--attachment", os.path.abspath(f)])
+    if text_styles:
+        cmd.append("--text-style")
+        cmd.extend(text_styles)
     cmd.append(to)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"signal-cli send failed: {result.stderr.strip()}")
 
 
+_ESCAPE_TARGETS = {
+    "n": "\n", "r": "\r", "t": "\t",
+    "\\": "\\", "\"": "\"", "'": "'", "0": "\x00",
+}
+
+
+def _decode_shell_escapes(message: str) -> str:
+    """Decode the handful of escape sequences a shell caller may have passed
+    literally (e.g. \\n for newline). Avoids Python's `unicode_escape` codec
+    because that one round-trips the string through Latin-1 and mojibakes
+    every non-ASCII byte (UTF-8 ö → "Ã¶", em-dash → "â€"). We only touch
+    known escapes and leave the rest of the string untouched."""
+    return re.sub(
+        r"\\(.)",
+        lambda m: _ESCAPE_TARGETS.get(m.group(1), m.group(0)),
+        message,
+    )
+
+
 def cmd_send(config, to, message, attachments=None):
     """Send a Signal message — via daemon socket if running, otherwise via CLI."""
+    # Decode common escape sequences that bash passes literally (e.g. \n → newline).
+    # NOTE: we deliberately do NOT use `.encode().decode("unicode_escape")` — that
+    # codec is Latin-1-based and corrupts every non-ASCII UTF-8 byte. See
+    # _decode_shell_escapes above.
+    message = _decode_shell_escapes(message)
+
+    # Convert Markdown markers to signal-cli's position-based --text-style format.
+    # Plain text + style ranges arrive in Signal as actual bold/italic/etc.
+    message, text_styles = markdown_to_signal_styles(message)
+
     number = config["number"]
     if not number:
         print("ERROR: No Signal number configured", file=sys.stderr)
@@ -725,9 +925,17 @@ def cmd_send(config, to, message, attachments=None):
     db = get_signal_db(config)
     try:
         if os.path.exists(DAEMON_SOCKET):
-            _send_via_socket(to, message, attachments)
+            try:
+                _send_via_socket(to, message, attachments, text_styles)
+            except RuntimeError as sock_err:
+                # If the daemon rejects the textStyle field name, retry via CLI
+                # where the flag name is documented and stable.
+                if text_styles and ("textStyle" in str(sock_err) or "Unrecognized" in str(sock_err) or "Invalid params" in str(sock_err)):
+                    _send_via_cli(number, to, message, attachments, text_styles)
+                else:
+                    raise
         else:
-            _send_via_cli(number, to, message, attachments)
+            _send_via_cli(number, to, message, attachments, text_styles)
 
         update_contact(db, to)
         # Include attachment info in stored message
@@ -747,6 +955,46 @@ def cmd_send(config, to, message, attachments=None):
         sys.exit(1)
     finally:
         db.close()
+
+
+# --- TYPING command ---
+
+def send_typing(recipient: str) -> bool:
+    """Send a 'typing...' indicator via the daemon socket."""
+    if not recipient:
+        return False
+    try:
+        sock = _socket_mod.socket(_socket_mod.AF_UNIX, _socket_mod.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(DAEMON_SOCKET)
+        req = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "typing",
+            "method": "sendTyping",
+            "params": {
+                "recipient": [recipient],
+            },
+        })
+        sock.sendall(req.encode() + b"\n")
+        # Read response (don't block forever)
+        buf = b""
+        while b"\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
+def cmd_typing(config, recipient: str) -> None:
+    """Send a typing indicator to a recipient."""
+    if not recipient:
+        print("ERROR: recipient is required", file=sys.stderr)
+        sys.exit(1)
+    send_typing(recipient)
 
 
 # --- CONTACTS command ---
@@ -842,6 +1090,10 @@ Examples:
     p_send.add_argument("--attach", action="append", default=[], metavar="FILE",
                          help="Attach a file (image, PDF, etc.). Can be repeated.")
 
+    # typing
+    p_typing = sub.add_parser("typing", help="Send a typing indicator to a recipient")
+    p_typing.add_argument("number", help="Recipient phone number")
+
     # contacts
     p_contacts = sub.add_parser("contacts", help="List known contacts")
     p_contacts.add_argument("--limit", type=int, default=20)
@@ -870,6 +1122,8 @@ Examples:
                      attachments_json=args.attachments)
     elif args.command == "send":
         cmd_send(config, args.number, args.message, attachments=args.attach)
+    elif args.command == "typing":
+        cmd_typing(config, args.number)
     elif args.command == "contacts":
         cmd_contacts(config, limit=args.limit)
     elif args.command == "history":
