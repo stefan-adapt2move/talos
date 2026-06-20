@@ -29,7 +29,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 # --- Paths ---
 CONFIG_PATH = os.environ["HOME"] + "/config.yml"
-ATLAS_DB_PATH = os.environ["HOME"] + "/.index/atlas.db"
+ATLAS_DB_PATH = os.environ["HOME"] + "/.index/" + os.environ.get("DB_FILENAME", "atlas.db")
 TELEGRAM_DB_DIR = os.environ["HOME"] + "/.index/telegram"
 TELEGRAM_ATTACHMENTS_DIR = os.environ["HOME"] + "/.local/share/telegram/attachments"
 WAKE_PATH = os.environ["HOME"] + "/.index/.wake"

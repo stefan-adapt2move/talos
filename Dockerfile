@@ -3,6 +3,8 @@
 # ============================================================
 FROM oven/bun:1 AS trigger-builder
 
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
 # Copy package files and install dependencies
@@ -13,6 +15,7 @@ RUN bun install --frozen-lockfile
 COPY app/triggers/trigger-runner.ts ./triggers/
 COPY app/lib/config.ts ./lib/
 COPY app/lib/db.ts ./lib/
+COPY app/lib/app-name.ts ./lib/
 
 # Compile to native binary (auto-detect architecture)
 RUN ARCH=$(uname -m) && \
@@ -35,13 +38,26 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   supervisor \
   nginx \
   sqlite3 \
-  python3 python3-pip \
+  python3 python3-pip python-is-python3 \
   openssh-client \
   ca-certificates \
   unzip xz-utils sudo \
   ffmpeg \
-  pandoc libreoffice imagemagick \
+  pandoc libreoffice imagemagick poppler-utils \
   gnupg build-essential procps \
+  # --- Headless Chrome runtime libs (required by agent-browser's bundled Chrome on x86_64) ---
+  libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
+  libxcomposite1 libxdamage1 libxkbcommon0 \
+  libnss3 libdrm2 libgbm1 libasound2t64 libcups2t64 \
+  libpango-1.0-0 libcairo2 \
+  # --- Fonts for PDF generation (pdf skill / Typst pipeline).
+  # fonts-crimson-pro intentionally NOT here — package doesn't exist in noble;
+  # Crimson Pro is fetched directly from Google Fonts a few lines below. ---
+  fonts-liberation fonts-dejavu \
+  fonts-inter fonts-ibm-plex fonts-jetbrains-mono \
+  fonts-noto fonts-noto-cjk \
+  fonts-ubuntu \
+  fontconfig \
   && rm -rf /var/lib/apt/lists/* \
   # --- Create non-root user ---
   && useradd -m -s /bin/bash -G sudo agent \
@@ -60,7 +76,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
   && rm -rf /tmp/bun.zip /tmp/bun-extract \
   # --- Supercronic ---
-  && SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v0.2.33/supercronic-linux-${ARCH}" \
+  && SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v0.2.46/supercronic-linux-${ARCH}" \
   && curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
   && chmod +x /usr/local/bin/supercronic \
   # --- Typst ---
@@ -70,7 +86,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${TYPST_ARCH}-unknown-linux-musl/typst" \
   && chmod +x /usr/local/bin/typst \
   # --- npm globals ---
-  && npm install -g agent-browser \
+  && npm install -g agent-browser docx \
   # Install chrome (for arm64 no native install is possible)
   && if [ "$ARCH" = "arm64" ]; \
   # Install for add-apt-repository (only ARM64)
@@ -82,26 +98,38 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
   else agent-browser install; fi \
   && ln -sf "$(which agent-browser)" /usr/local/bin/browser \
   && npm cache clean --force \
-  # --- Python packages (used by messaging addons for config parsing) ---
-  && pip install --break-system-packages pyyaml html2text \
+  # --- Python packages (messaging addons + office skills: defusedxml/lxml power docx/pptx/xlsx unpack·pack·validate) ---
+  && pip install --break-system-packages pyyaml html2text factur-x lxml defusedxml \
   # --- Claude Code CLI ---
   && npm install -g @anthropic-ai/claude-code \
   && claude --version \
   # --- LiteParse CLI (OCR on Client) ---
   && npm i -g @llamaindex/liteparse \
-  # --- Beads (bd) — AI-native task management ---
-  && npm i -g @beads/bd@0.63.3 \
+  # --- RTK (Rust Token Killer) — CLI proxy for 60-90% token savings ---
+  && RTK_VERSION="0.38.0" \
+  && if [ "$ARCH" = "arm64" ]; then RTK_ARCH="aarch64-unknown-linux-gnu"; else RTK_ARCH="x86_64-unknown-linux-musl"; fi \
+  && curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/rtk-${RTK_ARCH}.tar.gz" \
+  | tar -xz -C /usr/local/bin rtk \
+  && chmod +x /usr/local/bin/rtk \
   # --- Homebrew — installed directly into agent home dir for persistence ---
   && mkdir -p /home/agent/.homebrew \
   && curl -fsSL https://github.com/Homebrew/brew/tarball/master \
   | tar xz --strip-components 1 -C /home/agent/.homebrew \
   && /home/agent/.homebrew/bin/brew --version
 
+# --- Google Fonts — curated set for the pdf skill / Typst pipeline.
+# Variable .ttf cuts of families that aren't packaged in Ubuntu noble
+# (Crimson Pro, Lora, Merriweather, EB Garamond, Playfair Display,
+# Source Serif 4, Manrope, Work Sans, Fira Code). Owns its own layer so
+# adding/removing fonts doesn't bust the apt-install cache. ---
+COPY scripts/install-google-fonts.sh /tmp/install-google-fonts.sh
+RUN bash /tmp/install-google-fonts.sh && rm /tmp/install-google-fonts.sh
+
 ENV PATH="/home/agent/.homebrew/bin:/atlas/app/bin:/home/agent/bin:${PATH}"
 ENV HOME=/home/agent
-ENV BEADS_DIR=/home/agent/.beads
 ENV HOMEBREW_NO_AUTO_UPDATE=1
 ENV HOMEBREW_NO_ANALYTICS=1
+ENV NODE_PATH="/usr/lib/node_modules"
 
 # Create directory structure
 # /home/agent — agent-owned workspace (mounted as volume)
@@ -117,8 +145,7 @@ RUN mkdir -p /atlas/app /atlas/logs \
   /home/agent/secrets \
   /home/agent/helpers \
   && chown -R agent:agent /home/agent \
-  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs \
-  && ln -s /home/agent /home/atlas
+  && chown -R root:agent /atlas/logs && chmod -R 775 /atlas/logs
 
 # Copy application code (root-owned — agent should not modify system code)
 COPY app/ /atlas/app/
@@ -144,6 +171,18 @@ RUN chmod +x /atlas/app/entrypoint.sh \
   && cd /atlas/app/triggers && bun install \
   && cd /atlas/app/integrations/whatsapp && bun install \
   && cd /atlas/app/web-ui && bun install \
+  # Drop bun's install cache — runtime reads node_modules directly, the
+  # cache is only consumed during `bun install` at build time. Removing
+  # it shaves ~600 MB off the image AND deletes the root-owned files
+  # under /home/agent/.bun/install/cache/ that would otherwise force the
+  # entrypoint chown to require CAP_CHOWN at container start.
+  && rm -rf /home/agent/.bun/install/cache \
+  # Re-chown $HOME — the bun installs above ran as root (USER agent
+  # comes later in this Dockerfile) so any files they wrote into
+  # /home/agent (lockfiles, leftover state) are root-owned. Fixing
+  # ownership here lets the entrypoint chown become a no-op and the
+  # container start cleanly without any CAP_CHOWN / CAP_FOWNER caps.
+  && chown -R agent:agent /home/agent \
   && ln -sf /etc/nginx/sites-available/atlas /etc/nginx/sites-enabled/atlas \
   && rm -f /etc/nginx/sites-enabled/default \
   && mkdir -p /var/log/nginx /var/lib/nginx/body \

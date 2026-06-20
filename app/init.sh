@@ -261,52 +261,6 @@ if [ -f "$MCP_SYS" ] && grep -q "inbox-mcp" "$MCP_SYS" 2>/dev/null; then
   echo "  Removed stale MCP system.json (inbox-mcp reference)"
 fi
 
-# Self-heal: scan workspace for stale /home/atlas references
-# Only runs if /home/agent is the actual home (i.e. migration has happened)
-SELF_HEAL_MARKER="$WORKSPACE/.index/.self-heal-done"
-if [ "$HOME" = "/home/agent" ] && [ ! -f "$SELF_HEAL_MARKER" ]; then
-  STALE_FILES=$(grep -rql "/home/atlas" \
-    "$WORKSPACE/config.yml" \
-    "$WORKSPACE/.claude/" \
-    "$WORKSPACE/scripts/" \
-    "$WORKSPACE/triggers/" \
-    "$WORKSPACE/crontab" \
-    "$WORKSPACE/user-extensions.sh" \
-    2>/dev/null || true)
-  if [ -n "$STALE_FILES" ]; then
-    echo "  [WARN] Found /home/atlas references in workspace files:"
-    echo "$STALE_FILES" | sed 's/^/    /'
-    echo "  Will start self-heal session after services are up"
-    export SELF_HEAL_NEEDED=true
-  else
-    echo "  No stale /home/atlas references found"
-    touch "$SELF_HEAL_MARKER"
-  fi
-fi
-
-# Migrate Claude Code project directories: /home/atlas → /home/agent
-# Claude Code stores sessions under .claude/projects/<cwd-slugified>/
-# After the home dir rename, old sessions live under -home-atlas but Claude
-# now looks under -home-agent. Merge old → new so session resume works.
-CLAUDE_PROJECTS="$HOME/.claude/projects"
-OLD_PROJECT_DIR="$CLAUDE_PROJECTS/-home-atlas"
-NEW_PROJECT_DIR="$CLAUDE_PROJECTS/-home-agent"
-if [ -d "$OLD_PROJECT_DIR" ] && [ "$HOME" = "/home/agent" ]; then
-  mkdir -p "$NEW_PROJECT_DIR"
-  # Move all session files/dirs, skip conflicts (new wins)
-  for item in "$OLD_PROJECT_DIR"/*; do
-    [ -e "$item" ] || continue
-    base=$(basename "$item")
-    if [ ! -e "$NEW_PROJECT_DIR/$base" ]; then
-      mv "$item" "$NEW_PROJECT_DIR/$base"
-    fi
-  done
-  # Remove old dir if empty
-  rmdir "$OLD_PROJECT_DIR" 2>/dev/null && echo "  Migrated Claude projects: -home-atlas → -home-agent" || \
-    echo "  Partially migrated Claude projects (some files remain in -home-atlas)"
-fi
-
-
 # ── Phase 6: Initialize SQLite DB ──
 echo "[$(date)] Phase 6: Database init"
 DB="$WORKSPACE/.index/$DB_FILENAME"
@@ -332,25 +286,30 @@ bun -e "import { initDb } from '/atlas/app/atlas-mcp/db'; initDb();" || {
   echo "  ⚠ Database init via bun failed (non-fatal)"
 }
 
-# Seed default trigger on first run
-if [ "$FIRST_DB" = true ] && [ -f "$DB" ]; then
-  sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, schedule, prompt) VALUES (
-    'daily-cleanup', 'cron', 'Daily memory flush and session cleanup', 'internal', '0 6 * * *', '');"
-  echo "  Database initialized with default trigger"
-else
-  echo "  Database ready (schema + migrations applied)"
-fi
+echo "  Database ready (schema + migrations applied)"
 
-# Ensure memory-cleanup trigger exists (idempotent)
+# Migration: remove legacy triggers replaced by static crontab scripts / dreaming.
+# - daily-cleanup: ran an empty-prompt Claude session twice daily; the actual
+#   DB/JSONL pruning is done by app/triggers/cron/daily-cleanup.sh from the
+#   static crontab, not via a trigger session.
+# - memory-cleanup: replaced by the dreaming trigger.
+sqlite3 "$DB" "DELETE FROM triggers WHERE name IN ('daily-cleanup', 'memory-cleanup');" 2>/dev/null || true
+
+# Ensure dreaming trigger exists (nightly memory consolidation — replaces legacy memory-cleanup)
 sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, schedule, prompt, session_mode) VALUES (
-  'memory-cleanup', 'cron', 'Daily memory file cleanup and organization', 'internal', '0 7 * * *', '', 'ephemeral');" || echo "  ⚠ memory-cleanup trigger insert failed (non-fatal)"
+  'dreaming', 'cron', 'Nightly cognitive consolidation — session replay, memory cleanup, knowledge updates', 'internal', '0 3 * * *', '', 'ephemeral');" || echo "  ⚠ dreaming trigger insert failed (non-fatal)"
 
-# Create/update memory-cleanup trigger prompt
-mkdir -p "$WORKSPACE/triggers/memory-cleanup"
-if [ ! -f "$WORKSPACE/triggers/memory-cleanup/prompt.md" ]; then
-  cp /atlas/app/defaults/triggers/memory-cleanup/prompt.md "$WORKSPACE/triggers/memory-cleanup/prompt.md"
-  echo "  Created memory-cleanup trigger prompt"
+# Create dreaming trigger prompt
+mkdir -p "$WORKSPACE/triggers/dreaming"
+if [ ! -f "$WORKSPACE/triggers/dreaming/prompt.md" ]; then
+  cp /atlas/app/defaults/triggers/dreaming/prompt.md "$WORKSPACE/triggers/dreaming/prompt.md"
+  echo "  Created dreaming trigger prompt"
 fi
+
+# Always refresh dreaming trigger filter — system-managed (not user-customizable),
+# so we overwrite on every init to ensure upgrades reach existing containers.
+cp /atlas/app/defaults/triggers/dreaming/filter.sh "$WORKSPACE/triggers/dreaming/filter.sh"
+chmod +x "$WORKSPACE/triggers/dreaming/filter.sh"
 
 # Ensure web-chat trigger exists (idempotent migration)
 sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, prompt, session_mode) VALUES (
@@ -394,24 +353,12 @@ EXTENSIONS
   echo "  Created user-extensions.sh template"
 fi
 
-# ── Phase 7b: Beads Task System ──
-echo "[$(date)] Phase 7b: Beads task system (global)"
-BEADS_DIR_PATH="$HOME/.beads"
-if ! command -v bd &>/dev/null; then
-  echo "  WARNING: bd CLI not found — Beads task management unavailable"
-else
-  # Initialize global BEADS_DIR if it doesn't exist yet
-  if [ ! -d "$BEADS_DIR_PATH" ]; then
-    BEADS_DIR="$BEADS_DIR_PATH" bd init --stealth --quiet 2>/dev/null || true
-    echo "  Initialized global Beads dir: $BEADS_DIR_PATH"
-  else
-    echo "  Global Beads dir exists: $BEADS_DIR_PATH"
-  fi
-  # Log stale task count (informational only — do not delete)
-  STALE_JSON=$(BEADS_DIR="$BEADS_DIR_PATH" bd stale --days 7 --json 2>/dev/null) || STALE_JSON="[]"
-  STALE_COUNT=$(echo "$STALE_JSON" | jq 'length' 2>/dev/null) || STALE_COUNT=0
-  echo "  Stale tasks (>7 days, in_progress): $STALE_COUNT"
-fi
+# ── Phase 7b: Task System ──
+echo "[$(date)] Phase 7b: Atlas task management system (atlas.db)"
+# Task tables (goals, tasks, task_deps, goal_validations) are created by atlas-db.ts
+# initDb() which runs in Phase 7a above. Log a quick sanity check.
+TASK_TABLES=$(sqlite3 "$HOME/.index/$DB_FILENAME" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('goals','tasks','task_deps','goal_validations');" 2>/dev/null) || TASK_TABLES=0
+echo "  Task management tables ready: ${TASK_TABLES}/4"
 
 # ── Phase 8: Claude Code Settings + Discovery Links ──
 # Regenerated on every start to pick up model changes from config.yml
@@ -467,6 +414,67 @@ echo "  Skills directory: $HOME/.claude/agents/"
 # ── Phase 9: Sync Crontab from Triggers ──
 echo "[$(date)] Phase 9: Crontab sync"
 bun run /atlas/app/triggers/sync-crontab.ts || echo "  ⚠ Crontab sync failed (non-fatal)"
+
+# ── Phase 9b: Auto-setup email poller (if email is configured) ──
+# Check runtime config + config.yml for imap_host. If set, provision the
+# email-poller supervisord service and email-handler trigger automatically.
+# This handles pod restarts where the runtime config already exists.
+echo "[$(date)] Phase 9b: Email poller setup"
+_imap_host=""
+# Check runtime config first (higher priority)
+if [ -f "$WORKSPACE/.atlas-runtime-config.json" ]; then
+  _imap_host=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$WORKSPACE/.atlas-runtime-config.json'))
+    print(d.get('email', {}).get('imap_host', ''))
+except: pass
+" 2>/dev/null || true)
+fi
+# Fall back to config.yml
+if [ -z "$_imap_host" ] && [ -f "$WORKSPACE/config.yml" ]; then
+  _imap_host=$(python3 -c "
+import sys
+try:
+    import yaml
+    d = yaml.safe_load(open('$WORKSPACE/config.yml')) or {}
+    print(d.get('email', {}).get('imap_host', ''))
+except: pass
+" 2>/dev/null || true)
+fi
+# Also check env var override
+if [ -z "$_imap_host" ] && [ -n "${ATLAS_EMAIL_IMAP_HOST:-}" ]; then
+  _imap_host="$ATLAS_EMAIL_IMAP_HOST"
+fi
+
+if [ -n "$_imap_host" ]; then
+  echo "  Email configured (host=$_imap_host) — provisioning email-poller"
+  mkdir -p "$WORKSPACE/supervisor.d" "$WORKSPACE/triggers/email-handler"
+
+  # Write supervisor conf (idempotent)
+  cat > "$WORKSPACE/supervisor.d/email-poller.conf" << 'SUPEOF'
+[program:email-poller]
+command=/atlas/app/bin/email poll
+autostart=true
+autorestart=true
+stdout_logfile=/atlas/logs/email-poller.log
+stderr_logfile=/atlas/logs/email-poller-error.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=3
+stderr_logfile_maxbytes=1MB
+stderr_logfile_backups=1
+SUPEOF
+
+  # Add email-handler trigger (idempotent).
+  # prompt uses {{payload}} so the trigger-runner injects the email JSON;
+  # the channel system prompt (trigger-channel-email.md) provides all behavioral context.
+  if [ -f "$DB" ]; then
+    sqlite3 "$DB" "INSERT OR IGNORE INTO triggers (name, type, description, channel, prompt, session_mode) VALUES ('email-handler', 'webhook', 'Email conversations (IMAP)', 'email', '{{payload}}', 'persistent');" 2>/dev/null || true
+  fi
+  echo "  Email poller provisioned (will start with supervisord in Phase 10)"
+else
+  echo "  Email not configured — skipping email-poller setup"
+fi
 
 # ── Phase 10: Start Services ──
 echo "[$(date)] Phase 10: Starting services"
@@ -524,24 +532,6 @@ for row in rows:
     else:
         print(f'  Skipping unrecoverable run #{rid}: {name} (no session_id or payload)')
 " 2>/dev/null || echo "  ⚠ Trigger resume failed (non-fatal)"
-fi
-
-# ── Phase 12: Self-heal stale path references ──
-if [ "${SELF_HEAL_NEEDED:-}" = "true" ]; then
-  echo "[$(date)] Phase 12: Starting self-heal session for /home/atlas → /home/agent migration"
-  SELF_HEAL_PROMPT="Scan the workspace at $HOME for files that contain hardcoded /home/atlas paths and replace them with /home/agent.
-
-Rules:
-- Only touch: config files (.yml, .yaml, .json), shell scripts (.sh), markdown (.md), crontab, .claude/ project configs
-- NEVER touch: .git/, node_modules/, databases (.db), secrets/, binary files
-- Skip files under .index/
-- For each file changed, report what was updated
-- After all changes, create the marker file: touch $HOME/.index/.self-heal-done
-
-This is an automated migration task. Be thorough but conservative."
-
-  /atlas/app/triggers/trigger.sh "self-heal" "$SELF_HEAL_PROMPT" "self-heal" &
-  echo "  Self-heal session started in background"
 fi
 
 echo "[$(date)] $AGENT_NAME init complete. First run: $FIRST_RUN"

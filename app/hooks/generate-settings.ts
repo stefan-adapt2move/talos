@@ -28,15 +28,15 @@ const failureEnvContent = [
 ].join("\n");
 writeFileSync(HOME + "/.failure-env", failureEnvContent);
 
-// Beads session-isolated hooks — each session gets its own .beads/ directory
-const beadsSessionScript = "/atlas/app/hooks/beads-session.sh";
+// Task management session hooks — scoped to (trigger_name, session_key)
+const taskSessionScript = "/atlas/app/hooks/task-session.sh";
 
-// No prompt-based stop hook — the Beads command hook (beads-session.sh check)
-// handles task completion gating via RalphLoop-style {"decision":"block"} JSON.
-// Team lifecycle and response delivery are handled by system prompt instructions.
+// No prompt-based stop hook — the task command hook (task-session.sh check)
+// handles task completion gating via {"decision":"block"} JSON.
+// Response delivery is handled by system prompt instructions.
 
 const subagentStopPrompt = [
-  "A team member has completed their task. Review the result in $ARGUMENTS.",
+  "A subagent has completed their task. Review the result in $ARGUMENTS.",
   "",
   "Evaluate:",
   "1. Was the original task fully completed?",
@@ -58,9 +58,7 @@ const commitAttribution = agentEmail
 
 const settings: Record<string, unknown> = {
   env: {
-    CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    CLAUDE_MODEL: mainModel,
     CLAUDE_CODE_DISABLE_THINK: "1",
   },
   attribution: {
@@ -79,9 +77,6 @@ const settings: Record<string, unknown> = {
       "WebFetch",
       "WebSearch",
       "Agent",
-      "TeamCreate",
-      "TeamDelete",
-      "SendMessage",
       "mcp__*",
     ],
     deny: [
@@ -96,6 +91,10 @@ const settings: Record<string, unknown> = {
       "TaskUpdate",
       "TaskList",
       "TaskGet",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "AskUserQuestion",
     ],
   },
   hooks: {
@@ -103,7 +102,7 @@ const settings: Record<string, unknown> = {
       {
         hooks: [
           { type: "command", command: "/atlas/app/hooks/session-start.sh" },
-          { type: "command", command: `${beadsSessionScript} start` },
+          { type: "command", command: `${taskSessionScript} start` },
         ],
       },
     ],
@@ -111,7 +110,13 @@ const settings: Record<string, unknown> = {
       {
         hooks: [
           { type: "command", command: "/atlas/app/hooks/stop.sh" },
-          { type: "command", command: `${beadsSessionScript} check` },
+        ],
+      },
+    ],
+    PostCompact: [
+      {
+        hooks: [
+          { type: "command", command: "/atlas/app/hooks/post-compact.sh" },
         ],
       },
     ],
@@ -120,7 +125,6 @@ const settings: Record<string, unknown> = {
         matcher: "auto",
         hooks: [
           { type: "command", command: "/atlas/app/hooks/pre-compact-auto.sh" },
-          { type: "command", command: `${beadsSessionScript} prime` },
         ],
       },
       {
@@ -130,7 +134,14 @@ const settings: Record<string, unknown> = {
             type: "command",
             command: "/atlas/app/hooks/pre-compact-manual.sh",
           },
-          { type: "command", command: `${beadsSessionScript} prime` },
+        ],
+      },
+    ],
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          { type: "command", command: "rtk hook claude" },
         ],
       },
     ],

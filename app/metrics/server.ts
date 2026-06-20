@@ -11,7 +11,7 @@ import { join } from "path";
 
 const PORT = Number(process.env.ATLAS_METRICS_PORT) || 9090;
 const HOME = process.env.HOME || "/home/agent";
-const DB_PATH = join(HOME, ".index", "atlas.db");
+const DB_PATH = join(HOME, ".index", process.env.DB_FILENAME ?? "atlas.db");
 const CUSTOMER_ID = process.env.CUSTOMER_ID || "unknown";
 const START_TIME = Date.now();
 
@@ -231,6 +231,69 @@ function collectProcessMetrics(): MetricLine[] {
 }
 
 // ---------------------------------------------------------------------------
+// Email poller observability
+//
+// Signal to operators whether the IMAP listener is actually running. The
+// poller is supervised by supervisord; we check `supervisorctl status
+// email-poller` and surface the result as a 0/1 gauge.
+//
+// We deliberately use supervisorctl rather than scanning /proc — when
+// supervisord considers the service down (e.g. exit-on-error backoff),
+// any zombie process wouldn't count anyway.
+// ---------------------------------------------------------------------------
+
+import { spawnSync } from "bun";
+
+function collectEmailPollerMetrics(): MetricLine[] {
+  // Email poller is only set up if email is configured. If the supervisor
+  // config file doesn't exist, the service was never installed for this
+  // instance — emit 0 with a label so the alert can ignore it cleanly via
+  // its `for: 5m` window only if email is actually configured (controller
+  // sets up the supervisor.d entry before the metric matters).
+  const SUPERVISOR_CONF = join(HOME, "supervisor.d", "email-poller.conf");
+  if (!existsSync(SUPERVISOR_CONF)) {
+    return [
+      {
+        name: "atlas_email_poller_up",
+        help: "Whether the email-poller supervisord service is running (1=running, 0=down). Reports 0 even when email is not configured.",
+        type: "gauge",
+        values: [{ labels: { configured: "false" }, value: 0 }],
+      },
+    ];
+  }
+
+  try {
+    const proc = spawnSync(["supervisorctl", "status", "email-poller"], {
+      // supervisorctl writes to stderr on errors; capture both.
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = (proc.stdout?.toString() ?? "") + (proc.stderr?.toString() ?? "");
+    // "RUNNING" in the status line is the success marker. Backoff,
+    // FATAL, STOPPED, etc. all map to 0.
+    const isRunning = /RUNNING/.test(out);
+    return [
+      {
+        name: "atlas_email_poller_up",
+        help: "Whether the email-poller supervisord service is running (1=running, 0=down).",
+        type: "gauge",
+        values: [{ labels: { configured: "true" }, value: isRunning ? 1 : 0 }],
+      },
+    ];
+  } catch {
+    // supervisorctl not on PATH, or socket unreachable — treat as down.
+    return [
+      {
+        name: "atlas_email_poller_up",
+        help: "Whether the email-poller supervisord service is running (1=running, 0=down).",
+        type: "gauge",
+        values: [{ labels: { configured: "true" }, value: 0 }],
+      },
+    ];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HTTP Server
 // ---------------------------------------------------------------------------
 
@@ -244,6 +307,7 @@ const server = Bun.serve({
         ...collectDiskMetrics(),
         ...collectDbMetrics(),
         ...collectProcessMetrics(),
+        ...collectEmailPollerMetrics(),
       ];
 
       // Add customer_id as an info metric
