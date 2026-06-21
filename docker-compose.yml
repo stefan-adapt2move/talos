@@ -11,6 +11,7 @@ services:
     environment:
       - TZ=Europe/Berlin
       - APP_NAME=Talos
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       # --- Core (prefix follows APP_NAME: TALOS_*) ---
       # - TALOS_AGENT_NAME=Talos          # Display name (alias: AGENT_NAME)
       # - TALOS_AGENT_EMAIL=              # Agent email address
